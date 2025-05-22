@@ -14,7 +14,9 @@ function ensureNestedMap(currency, date) {
 export function storeSymbolDataByDate(currency, date, symbol, symbolData) {
   const symbolMap = ensureNestedMap(currency, date);
   symbolMap.set(symbol, symbolData);
-  broadcastToUsers(userConnections, currency, date, symbol, symbolData);
+    // ✅ Broadcast to both `option_chain` and `option_chain_symbol` subscribers
+    broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain');
+    broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain_symbol');
 }
 
 export function getSymbolDataByDate(currency, date, symbol) {

@@ -1,13 +1,19 @@
 import express from 'express';
 import http from 'http';
+import cors from 'cors'; // ✅ Import CORS
 import { WebSocketServer } from 'ws';
 import bodyParser from 'body-parser';
 import userWsRouter from './userWsRouter.js';
 import { fetchAndSaveSymbolsByCurrency, readSymbolsFromCSVsByCurrency } from './services/fetchSymbols.js';
+import { startDeltaWebSocket } from './services/deltaWsHandler.js';
+
 import { startWebSocketForCurrency } from './services/wsHandler.js';
 import config from './config/index.js';
 
 const app = express();
+
+app.use(cors()); // ✅ Enable CORS for all origins
+
 app.use(bodyParser.json());
 app.use('/', userWsRouter);
 
@@ -31,6 +37,11 @@ async function initializeSymbolAndWebSocket() {
       // Start WebSocket for the given currency and symbols
       startWebSocketForCurrency(currency, symbols);
     }
+
+    
+    // ✅ Start Delta WebSocket after Deribit setup
+    await startDeltaWebSocket();
+    
   } catch (err) {
     console.error('❌ Error initializing symbols and WebSocket:', err);
   }
