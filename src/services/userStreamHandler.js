@@ -94,18 +94,59 @@ export function handleSubscribe(req, res) {
 
 export function handleUnsubscribe(req, res) {
   const { userId, category, symbols = [], currency, date } = req.body;
+  const ws = req.app.get('userConnections').get(userId);
 
   if (!userSubscriptions.has(userId)) return res.send('No subscriptions');
   const catMap = userSubscriptions.get(userId);
   if (!catMap.has(category)) return res.send('No such category');
 
-  const set = catMap.get(category);
-  const targetSymbols = category === 'option_chain'
-    ? getSymbolsForOptionChain(currency, date)
-    : symbols;
+  const symbolSet = catMap.get(category);
+  let finalSymbols = [];
 
-  targetSymbols.forEach(s => set.delete(s));
-  res.send(`Unsubscribed ${targetSymbols.length} symbols for user ${userId}`);
+  if (category === 'option_chain') {
+    if (!currency || !date) return res.status(400).send('Currency and date required for option_chain');
+    finalSymbols = getSymbolsForOptionChain(currency, date);
+    if (!finalSymbols.length) return res.status(400).send('No symbols available for this currency and date');
+
+  } else if (category === 'option_chain_symbol') {
+    if (!currency) return res.status(400).send('Currency required for option_chain_symbol');
+    if (!symbols.length) return res.status(400).send('Symbols required for option_chain_symbol');
+    finalSymbols = symbols;
+
+  } else if (category === 'futures') {
+    const allFuturesSymbols = getAllDeltaSymbols();
+    if (!allFuturesSymbols.length) return res.status(400).send('No futures data available');
+    finalSymbols = allFuturesSymbols;
+
+  } else if (category === 'dashboard') {
+    finalSymbols = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "ADAUSD"];
+
+  } else {
+    if (!symbols.length) return res.status(400).send('Symbols required for this category');
+    finalSymbols = symbols;
+  }
+
+  // Remove symbols from the user's subscription set
+  finalSymbols.forEach(s => symbolSet.delete(s));
+
+  // Optionally notify the client of the unsubscription
+  if (ws && ws.readyState === 1) {
+    finalSymbols.forEach(symbol => {
+      ws.send(JSON.stringify({
+        type: 'unsubscribed',
+        symbol,
+        currency: currency || null,
+        date: date || null,
+        category
+      }));
+    });
+  }
+
+  // Cleanup if empty
+  if (symbolSet.size === 0) catMap.delete(category);
+  if (catMap.size === 0) userSubscriptions.delete(userId);
+
+  res.send(`Unsubscribed ${finalSymbols.length} symbols for user ${userId}`);
 }
 
 export function handleCancelWs(req, res) {
