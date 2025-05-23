@@ -46,6 +46,9 @@ export function handleSubscribe(req, res) {
     if (!allFuturesSymbols.length) return res.status(400).send('No futures data available');
     finalSymbols = allFuturesSymbols;
 
+  } else if (category === 'dashboard') {
+    // 6 hardcoded futures symbols
+    finalSymbols = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "ADAUSD"];
   } else {
     if (!symbols.length) return res.status(400).send('Symbols required for this category');
     finalSymbols = symbols;
@@ -56,7 +59,7 @@ export function handleSubscribe(req, res) {
   finalSymbols.forEach(symbol => {
     let data;
 
-    if (category === 'futures_symbol') {
+    if (category === 'futures_symbol' || category === 'dashboard') {
       data = getDeltaSymbolData(symbol);
 
     } else if (category === 'option_chain') {
@@ -77,7 +80,7 @@ export function handleSubscribe(req, res) {
       ws.send(JSON.stringify({
         type: 'initial-data',
         symbol,
-        currency,
+        currency: currency || data?.currency || null,
         date: data?.date || null,
         category,
         data
@@ -201,11 +204,20 @@ export function broadcastAllFuturesDataToUsers(userConnections, symbol, symbolDa
     const catMap = userSubscriptions.get(userId);
     if (!catMap || !catMap.has('futures')) continue;
 
+    const filteredData = {
+      high: symbolData?.high,
+      low: symbolData?.low,
+      underlying_asset_symbol: symbolData?.underlying_asset_symbol,
+      mark_price: symbolData?.mark_price,
+      mark_change_24h: symbolData?.mark_change_24h,
+      description: symbolData?.description?.replace(/Perpetual/gi, '').trim()
+    };
+
     ws.send(JSON.stringify({
       type: 'symbol-update',
       category: 'futures',
       symbol,
-      data: symbolData
+      data: filteredData
     }));
 
     console.log(`[futures] Broadcasting ${symbol} to user ${userId}`);
@@ -213,4 +225,33 @@ export function broadcastAllFuturesDataToUsers(userConnections, symbol, symbolDa
 }
 
 
+const DASHBOARD_SYMBOLS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "ADAUSD"];
+
+export function broadcastDashboardDataToUsers(userConnections, symbol, symbolData) {
+  if (!DASHBOARD_SYMBOLS.includes(symbol)) return; // ✅ Skip if not a dashboard symbol
+
+  for (const [userId, ws] of userConnections) {
+    if (ws.readyState !== 1) continue;
+
+    const catMap = userSubscriptions.get(userId);
+    if (!catMap || !catMap.has('dashboard')) continue;
+
+    const selectedData = {
+      high: symbolData?.high,
+      low: symbolData?.low,
+      mark_price: symbolData?.mark_price,
+      mark_change_24h: symbolData?.mark_change_24h,
+      volume: symbolData?.volume,
+    };
+
+    ws.send(JSON.stringify({
+      type: 'symbol-update',
+      category: 'dashboard',
+      symbol,
+      data: selectedData
+    }));
+
+    console.log(`[dashboard] Broadcasting ${symbol} to user ${userId}`);
+  }
+}
 
