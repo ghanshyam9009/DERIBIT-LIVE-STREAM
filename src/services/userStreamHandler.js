@@ -158,33 +158,6 @@ export function handleCancelWs(req, res) {
   res.send(`WebSocket closed for user ${userId}`);
 }
 
-// export function broadcastToUsers(userConnections, currency, date, symbol, symbolData) {
-//   for (const [userId, ws] of userConnections) {
-//     if (ws.readyState !== 1) continue;
-
-//     const catMap = userSubscriptions.get(userId);
-//     if (!catMap) continue;
-
-//     for (const [category, symbolSet] of catMap.entries()) {
-//       const shouldSend =
-//         (category === 'option_chain' && symbolSet.has(symbol)) ||
-//         (category === 'futures' && symbolSet.has(symbol)) ||
-//         symbolSet.has(symbol);
-
-//       if (shouldSend) {
-//         ws.send(JSON.stringify({
-//           type: 'symbol-update',
-//           currency,
-//           date,
-//           symbol,
-//           category,
-//           data: symbolData
-//         }));
-//         break;
-//       }
-//     }
-//   }
-// }
 
 
 export function broadcastToUsers(userConnections, currency, date, symbol, symbolData, forcedCategory = null) {

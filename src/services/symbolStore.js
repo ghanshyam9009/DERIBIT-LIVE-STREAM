@@ -1,6 +1,8 @@
 
-import { broadcastToUsers } from './userStreamHandler.js';
-import { userConnections } from '../server.js';
+import { broadcastToUsers} from './userStreamHandler.js';
+// broadcastPositionData
+import { userConnections, positionConnections } from '../server.js';
+import { broadcastPositionData } from './subscriptionHandler.js';
 
 const fullStore = new Map(); // Map<currency, Map<date, Map<symbol, data>>>
 
@@ -17,6 +19,7 @@ export function storeSymbolDataByDate(currency, date, symbol, symbolData) {
     // ✅ Broadcast to both `option_chain` and `option_chain_symbol` subscribers
     broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain');
     broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain_symbol');
+    broadcastPositionData(positionConnections,symbol, symbolData, 'position');
 }
 
 export function getSymbolDataByDate(currency, date, symbol) {

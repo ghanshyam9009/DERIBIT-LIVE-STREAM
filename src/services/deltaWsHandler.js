@@ -57,14 +57,6 @@ function setupWebSocketConnection() {
       const parsed = JSON.parse(data);
       const symbol = parsed?.symbol;
       storeDeltaSymbolData(symbol, parsed);
-      if (parsed?.type === "v2/ticker" && symbol) {
-        // if (parsed.symbol === "BTCUSD") {
-        //     console.log("BTCUSD Data:", parsed);
-        //   }
-          
-          
-      
-      }
     } catch (err) {
       console.error("❌ Failed to parse Delta message:", err);
     }
