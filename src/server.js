@@ -1,4 +1,3 @@
-
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -9,6 +8,9 @@ import { fetchAndSaveSymbolsByCurrency, readSymbolsFromCSVsByCurrency } from './
 import { startDeltaWebSocket } from './services/deltaWsHandler.js';
 import { startWebSocketForCurrency } from './services/wsHandler.js';
 import config from './config/index.js';
+import { clearCSVs } from './utils/fileUtils.js'; // clearCSVs import
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 
@@ -21,13 +23,17 @@ const wss = new WebSocketServer({ noServer: true });
 const positionWss = new WebSocketServer({ noServer: true });
 const limitOrderWss = new WebSocketServer({ noServer: true });
 
-const userConnections = new Map(); // Main user connections map
-const positionConnections = new Map(); // Position WebSocket connections
-const limitOrderConnections = new Map(); // Limit Order WebSocket connections
+const userConnections = new Map();
+const positionConnections = new Map();
+const limitOrderConnections = new Map();
 
 // Function to initialize symbol and WebSocket logic for each category
 async function initializeSymbolAndWebSocket() {
   try {
+    console.log('🧹 Clearing CSV files...');
+    const csvFolderPath = path.resolve('./data'); // ✅ Set the actual path
+    clearCSVs(csvFolderPath);
+
     console.log('🚀 Starting Deribit Symbol Service...');
     for (const currency of config.currencies) {
       await fetchAndSaveSymbolsByCurrency(currency);
@@ -42,7 +48,7 @@ async function initializeSymbolAndWebSocket() {
 
 initializeSymbolAndWebSocket();
 
-// Handle WebSocket connections for the main connection, position, and limitorder categories
+// WebSocket upgrade handling
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const userId = url.searchParams.get('userId');
@@ -89,19 +95,9 @@ server.on('upgrade', (req, socket, head) => {
 app.set('userConnections', userConnections);
 app.set('positionConnections', positionConnections);
 
-
-// Start the server
 server.listen(3000, () => {
   console.log('🚀 Server running on http://localhost:3000');
 });
 
-
-
-
 export { userConnections };
-export {positionConnections};
-
-
-
-
-
+export { positionConnections };

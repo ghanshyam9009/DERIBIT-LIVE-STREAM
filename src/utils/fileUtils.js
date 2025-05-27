@@ -10,11 +10,11 @@ export function ensureDir(dirPath) {
   }
 }
 
-export function clearCSVs(dirPath) {
-  const files = fs.readdirSync(dirPath);
+export function clearCSVs(dirPath1) {
+  const files = fs.readdirSync(dirPath1);
   for (const file of files) {
     if (file.endsWith('.csv')) {
-      fs.unlinkSync(path.join(dirPath, file));
+      fs.unlinkSync(path.join(dirPath1, file));
     }
   }
 }

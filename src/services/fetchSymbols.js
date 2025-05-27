@@ -4,7 +4,7 @@ import path from 'path';
 import csvParser from 'csv-parser';
 import config from '../config/index.js';
 import { extractDateFromSymbol, parseDate } from '../utils/dateUtils.js';
-import { ensureDir, clearCSVs, saveCSV } from '../utils/fileUtils.js';
+import { ensureDir, saveCSV } from '../utils/fileUtils.js';
 
 
 
