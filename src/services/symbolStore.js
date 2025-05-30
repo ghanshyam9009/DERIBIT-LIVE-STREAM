@@ -38,3 +38,11 @@ export function getAllDates(currency) {
 export function getFullSymbolDataMap() {
   return fullStore;
 }
+
+
+
+export function getDatesByCurrency(currency) {
+  if (!currency) return { error: 'Currency is required' };
+  const dates = getAllDates(currency);
+  return { currency, dates };
+}
