@@ -239,6 +239,15 @@ export function broadcastAllFuturesDataToUsers(userConnections, symbol, symbolDa
 }
 
 
+
+
+
+
+
+
+
+
+
 const DASHBOARD_SYMBOLS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "ADAUSD"];
 
 export function broadcastDashboardDataToUsers(userConnections, symbol, symbolData) {
