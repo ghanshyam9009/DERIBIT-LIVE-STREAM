@@ -12,6 +12,11 @@ import { clearCSVs } from './utils/fileUtils.js'; // clearCSVs import
 import fs from 'fs';
 import path from 'path';
 
+// usually at the top of your entry file (e.g., index.js or server.js)
+import dotenv from 'dotenv';
+dotenv.config();
+
+
 const app = express();
 
 app.use(cors());
