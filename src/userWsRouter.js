@@ -1,6 +1,6 @@
 import express from 'express';
 import { handleSubscribe, handleUnsubscribe, handleCancelWs } from './services/userStreamHandler.js';
-import { handleSubscribe1,handleUnsubscribe2,handleCancelPositionWs} from './services/subscriptionHandler.js';
+import { handleSubscribe1,handleUnsubscribe2,handleCancelPositionWs,triggerPNLUpdate} from './services/subscriptionHandler.js';
 import { getDatesByCurrency } from './services/symbolStore.js';
 
 
@@ -16,6 +16,9 @@ router.post('/external-subscribe', handleSubscribe1);
 router.post('/external-unsubscribe', handleUnsubscribe2);
 router.post('/cancel-position-ws', handleCancelPositionWs);
 
+
+
+
 router.post('/dates', (req, res) => {
     const { currency, userId } = req.body;
   
@@ -27,6 +30,6 @@ router.post('/dates', (req, res) => {
     res.json(result);
   });
 
-
+router.post('/triggerPNLUpdate',triggerPNLUpdate)
 
 export default router;
