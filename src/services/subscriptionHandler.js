@@ -1,15 +1,216 @@
-// === utils/symbolTypeUtils.js ===
+// // === utils/symbolTypeUtils.js ===
+// import { getDeltaSymbolData } from './deltaSymbolStore.js';
+// import { getSymbolDataByDate } from './symbolStore.js';
+// import { getCurrencyAndDateFromSymbol, isFuturesSymbol, isOptionSymbol } from '../utils/symbolUtils.js';
+// import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
+// import { unmarshall } from "@aws-sdk/util-dynamodb";
+// import dayjs from 'dayjs';
+
+// export const userSubscriptions = new Map();
+// const userActivePositions = new Map(); // Top-level cache
+
+// import { ListTablesCommand } from "@aws-sdk/client-dynamodb";
+
+// const dynamoClient = new DynamoDBClient({ region: "ap-southeast-1" });
+
+// export async function checkDynamoConnection() {
+//   try {
+//     const command = new ListTablesCommand({});
+//     const response = await dynamoClient.send(command);
+//     console.log("✅ DynamoDB Connected.");
+//     console.log("📋 Available Tables:", response.TableNames);
+//   } catch (err) {
+//     console.error("❌ DynamoDB connection failed:", err);
+//   }
+// }
+
+// checkDynamoConnection();
+
+// // === Position Subscription Handler ===
+// export async function handleSubscribe1(req, res) {
+//   const { userId, category } = req.body;
+//   const ws = req.app.get('positionConnections').get(userId);
+
+//   if (!ws || ws.readyState !== 1) {
+//     console.log('WebSocket not open or not connected for user:', userId);
+//     return res.status(400).send('User WebSocket not connected');
+//   }
+
+//   const catMap = userSubscriptions.get(userId) || new Map();
+//   userSubscriptions.set(userId, catMap);
+
+//   const dynamoCommand = new QueryCommand({
+//     TableName: "incrypto-dev-positions",
+//     IndexName: "UserIndex",
+//     KeyConditionExpression: "userId = :uid",
+//     ExpressionAttributeValues: {
+//       ":uid": { S: userId }
+//     }
+//   });
+
+//   let userPositions = [];
+//   try {
+//     const { Items } = await dynamoClient.send(dynamoCommand);
+//     if (!Items || !Items.length) {
+//       return res.status(400).send("No data found.");
+//     }
+//     userPositions = Items.map(item => unmarshall(item));
+//     console.log(`[${userId}] Positions fetched from DB:`, userPositions.map(p => p.assetSymbol));
+//     userActivePositions.set(userId, userPositions);
+//   } catch (err) {
+//     console.error("DynamoDB query failed", err);
+//     return res.status(500).send("Failed to fetch positions");
+//   }
+
+//   const symbols = userPositions.map(pos => pos.assetSymbol).filter(Boolean);
+//   if (!symbols.length) return res.status(400).send('No active asset symbols found');
+
+//   const symbolSet = catMap.get(category) || new Set();
+//   symbols.forEach(symbol => symbolSet.add(symbol));
+//   catMap.set(category, symbolSet); // Ensure updated set is written back
+//   console.log(`[${userId}] Subscribed symbols in category '${category}':`, Array.from(symbolSet));
+
+//   // Immediately calculate and broadcast data
+//   broadcastAllPositions(req.app.get('positionConnections'), userId, category);
+
+//   res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
+// }
+
+// // === Broadcast Handler for all positions of a user ===
+// function broadcastAllPositions(positionConnections, userId, category) {
+//   const ws = positionConnections.get(userId);
+//   if (!ws || ws.readyState !== 1) return;
+
+//   const userPositions = userActivePositions.get(userId);
+//   if (!userPositions || !userPositions.length) return;
+
+//   let totalPNL = 0;
+//   let totalInvested = 0;
+
+//   const positionUpdates = userPositions.map(userPos => {
+//     const { assetSymbol: symbol, quantity, leverage, positionType, entryPrice } = userPos;
+//     let data = {};
+
+//     if (isFuturesSymbol(symbol)) {
+//       data = getDeltaSymbolData(symbol);
+//     } else if (isOptionSymbol(symbol)) {
+//       const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+//       data = getSymbolDataByDate(currency, date, symbol);
+//     }
+
+//     const markPrice = parseFloat(data.markPrice ?? data.mark_price);
+//     if (!markPrice || isNaN(markPrice)) return null;
+
+//     const invested = entryPrice * quantity;
+//     let pnl = 0;
+
+//     if (positionType === "LONG") {
+//       pnl = (markPrice - entryPrice) * quantity;
+//     } else if (positionType === "SHORT") {
+//       pnl = (entryPrice - markPrice) * quantity;
+//     }
+
+//     const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+
+//     totalPNL += pnl;
+//     totalInvested += invested;
+
+//     return {
+//       symbol,
+//       markPrice,
+//       entryPrice,
+//       quantity,
+//       leverage,
+//       positionType,
+//       pnl: Number(pnl.toFixed(2)),
+//       pnlPercentage: Number(pnlPercentage.toFixed(2))
+//     };
+//   }).filter(Boolean);
+
+//   console.log(`[${userId}] Broadcasting ${positionUpdates.length} symbols in category '${category}':`, positionUpdates.map(p => p.symbol));
+
+//   ws.send(JSON.stringify({
+//     type: 'bulk-position-update',
+//     positions: positionUpdates,
+//     totalPNL: Number(totalPNL.toFixed(2)),
+//     totalInvested: Number(totalInvested.toFixed(2)),
+//     category,
+//   }));
+// }
+
+// // === Live Stream LTP Update ===
+// export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
+//   for (const [userId, ws] of positionConnections) {
+//     if (ws.readyState !== 1) continue;
+
+//     const catMap = userSubscriptions.get(userId);
+//     if (!catMap || !catMap.has(category)) continue;
+
+//     const subscribedSymbols = catMap.get(category);
+//     if (!subscribedSymbols.has(symbol)) continue;
+
+//     console.log(`[${userId}] Triggered broadcast due to update in symbol '${symbol}' under category '${category}'`);
+
+//     // Recalculate all user's positions based on the new LTP
+//     broadcastAllPositions(positionConnections, userId, category);
+//   }
+// }
+
+
+
+
+
+// export async function triggerPNLUpdate(req, res) {
+//   const { userId, category } = req.body;
+//   if (!userId) return res.status(400).send("Missing userId");
+
+//   const catMap = userSubscriptions.get(userId) || new Map();
+//   userSubscriptions.set(userId, catMap);
+
+//   const dynamoCommand = new QueryCommand({
+//     TableName: "incrypto-dev-positions",
+//     IndexName: "UserIndex",
+//     KeyConditionExpression: "userId = :uid",
+//     ExpressionAttributeValues: {
+//       ":uid": { S: userId }
+//     }
+//   });
+
+//   let userPositions = [];
+//   try {
+//     const { Items } = await dynamoClient.send(dynamoCommand);
+//     if (!Items || !Items.length) {
+//       return res.status(400).send("No data found.");
+//     }
+//     userPositions = Items.map(item => unmarshall(item));
+//     userActivePositions.set(userId, userPositions);
+//   } catch (err) {
+//     console.error("DynamoDB query failed", err);
+//     return res.status(500).send("Failed to fetch positions");
+//   }
+
+//   const symbols = userPositions.map(pos => pos.assetSymbol).filter(Boolean);
+//   const symbolSet = catMap.get(category) || new Set();
+//   symbols.forEach(symbol => symbolSet.add(symbol));
+//   catMap.set(category, symbolSet);
+
+//   broadcastAllPositions(req.app.get('positionConnections'), userId, category);
+
+//   res.send('Triggered PnL Update Successfully');
+// }
+
+
+
+
+
 import { getDeltaSymbolData } from './deltaSymbolStore.js';
 import { getSymbolDataByDate } from './symbolStore.js';
 import { getCurrencyAndDateFromSymbol, isFuturesSymbol, isOptionSymbol } from '../utils/symbolUtils.js';
-import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, QueryCommand, ListTablesCommand } from "@aws-sdk/client-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
-import dayjs from 'dayjs';
 
 export const userSubscriptions = new Map();
-const userActivePositions = new Map(); // Top-level cache
-
-import { ListTablesCommand } from "@aws-sdk/client-dynamodb";
+const userActivePositions = new Map();
 
 const dynamoClient = new DynamoDBClient({ region: "ap-southeast-1" });
 
@@ -17,22 +218,19 @@ export async function checkDynamoConnection() {
   try {
     const command = new ListTablesCommand({});
     const response = await dynamoClient.send(command);
-    console.log("✅ DynamoDB Connected.");
-    console.log("📋 Available Tables:", response.TableNames);
+    console.log("✅ DynamoDB Connected. Tables:", response.TableNames);
   } catch (err) {
     console.error("❌ DynamoDB connection failed:", err);
   }
 }
-
 checkDynamoConnection();
 
-// === Position Subscription Handler ===
+// === Subscribe User to Position Category ===
 export async function handleSubscribe1(req, res) {
   const { userId, category } = req.body;
   const ws = req.app.get('positionConnections').get(userId);
 
   if (!ws || ws.readyState !== 1) {
-    console.log('WebSocket not open or not connected for user:', userId);
     return res.status(400).send('User WebSocket not connected');
   }
 
@@ -51,14 +249,10 @@ export async function handleSubscribe1(req, res) {
   let userPositions = [];
   try {
     const { Items } = await dynamoClient.send(dynamoCommand);
-    if (!Items || !Items.length) {
-      return res.status(400).send("No data found.");
-    }
+    if (!Items || !Items.length) return res.status(400).send("No data found.");
     userPositions = Items.map(item => unmarshall(item));
-    console.log(`[${userId}] Positions fetched from DB:`, userPositions.map(p => p.assetSymbol));
     userActivePositions.set(userId, userPositions);
   } catch (err) {
-    console.error("DynamoDB query failed", err);
     return res.status(500).send("Failed to fetch positions");
   }
 
@@ -67,16 +261,51 @@ export async function handleSubscribe1(req, res) {
 
   const symbolSet = catMap.get(category) || new Set();
   symbols.forEach(symbol => symbolSet.add(symbol));
-  catMap.set(category, symbolSet); // Ensure updated set is written back
-  console.log(`[${userId}] Subscribed symbols in category '${category}':`, Array.from(symbolSet));
+  catMap.set(category, symbolSet);
 
-  // Immediately calculate and broadcast data
   broadcastAllPositions(req.app.get('positionConnections'), userId, category);
 
   res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
 }
 
-// === Broadcast Handler for all positions of a user ===
+// === Trigger Manual PnL Update ===
+export async function triggerPNLUpdate(req, res) {
+  const { userId, category } = req.body;
+  if (!userId) return res.status(400).send("Missing userId");
+
+  const catMap = userSubscriptions.get(userId) || new Map();
+  userSubscriptions.set(userId, catMap);
+
+  const dynamoCommand = new QueryCommand({
+    TableName: "incrypto-dev-positions",
+    IndexName: "UserIndex",
+    KeyConditionExpression: "userId = :uid",
+    ExpressionAttributeValues: {
+      ":uid": { S: userId }
+    }
+  });
+
+  let userPositions = [];
+  try {
+    const { Items } = await dynamoClient.send(dynamoCommand);
+    if (!Items || !Items.length) return res.status(400).send("No data found.");
+    userPositions = Items.map(item => unmarshall(item));
+    userActivePositions.set(userId, userPositions);
+  } catch (err) {
+    return res.status(500).send("Failed to fetch positions");
+  }
+
+  const symbols = userPositions.map(pos => pos.assetSymbol).filter(Boolean);
+  const symbolSet = catMap.get(category) || new Set();
+  symbols.forEach(symbol => symbolSet.add(symbol));
+  catMap.set(category, symbolSet);
+
+  broadcastAllPositions(req.app.get('positionConnections'), userId, category);
+
+  res.send('Triggered PnL Update Successfully');
+}
+
+// === Central Position Broadcaster ===
 function broadcastAllPositions(positionConnections, userId, category) {
   const ws = positionConnections.get(userId);
   if (!ws || ws.readyState !== 1) return;
@@ -103,15 +332,10 @@ function broadcastAllPositions(positionConnections, userId, category) {
 
     const invested = entryPrice * quantity;
     let pnl = 0;
-
-    if (positionType === "LONG") {
-      pnl = (markPrice - entryPrice) * quantity;
-    } else if (positionType === "SHORT") {
-      pnl = (entryPrice - markPrice) * quantity;
-    }
+    if (positionType === "LONG") pnl = (markPrice - entryPrice) * quantity;
+    else if (positionType === "SHORT") pnl = (entryPrice - markPrice) * quantity;
 
     const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
-
     totalPNL += pnl;
     totalInvested += invested;
 
@@ -127,8 +351,6 @@ function broadcastAllPositions(positionConnections, userId, category) {
     };
   }).filter(Boolean);
 
-  console.log(`[${userId}] Broadcasting ${positionUpdates.length} symbols in category '${category}':`, positionUpdates.map(p => p.symbol));
-
   ws.send(JSON.stringify({
     type: 'bulk-position-update',
     positions: positionUpdates,
@@ -138,7 +360,7 @@ function broadcastAllPositions(positionConnections, userId, category) {
   }));
 }
 
-// === Live Stream LTP Update ===
+// === Real-time Broadcast on Symbol Price Update ===
 export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
   for (const [userId, ws] of positionConnections) {
     if (ws.readyState !== 1) continue;
@@ -149,60 +371,9 @@ export function broadcastPositionData(positionConnections, symbol, symbolData, c
     const subscribedSymbols = catMap.get(category);
     if (!subscribedSymbols.has(symbol)) continue;
 
-    console.log(`[${userId}] Triggered broadcast due to update in symbol '${symbol}' under category '${category}'`);
-
-    // Recalculate all user's positions based on the new LTP
     broadcastAllPositions(positionConnections, userId, category);
   }
 }
-
-
-
-
-
-export async function triggerPNLUpdate(req, res) {
-  const { userId, category } = req.body;
-  if (!userId) return res.status(400).send("Missing userId");
-
-  const catMap = userSubscriptions.get(userId) || new Map();
-  userSubscriptions.set(userId, catMap);
-
-  const dynamoCommand = new QueryCommand({
-    TableName: "incrypto-dev-positions",
-    IndexName: "UserIndex",
-    KeyConditionExpression: "userId = :uid",
-    ExpressionAttributeValues: {
-      ":uid": { S: userId }
-    }
-  });
-
-  let userPositions = [];
-  try {
-    const { Items } = await dynamoClient.send(dynamoCommand);
-    if (!Items || !Items.length) {
-      return res.status(400).send("No data found.");
-    }
-    userPositions = Items.map(item => unmarshall(item));
-    userActivePositions.set(userId, userPositions);
-  } catch (err) {
-    console.error("DynamoDB query failed", err);
-    return res.status(500).send("Failed to fetch positions");
-  }
-
-  const symbols = userPositions.map(pos => pos.assetSymbol).filter(Boolean);
-  const symbolSet = catMap.get(category) || new Set();
-  symbols.forEach(symbol => symbolSet.add(symbol));
-  catMap.set(category, symbolSet);
-
-  broadcastAllPositions(req.app.get('positionConnections'), userId, category);
-
-  res.send('Triggered PnL Update Successfully');
-}
-
-
-
-
-
 
 
 
