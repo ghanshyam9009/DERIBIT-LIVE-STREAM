@@ -307,7 +307,7 @@ export async function triggerPNLUpdate(req, res) {
   res.send('Triggered PnL Update Successfully');
 }
 
-// === Central Position Broadcaster ===
+// === Central Position Broadcaster ===// === Cleaned Position Broadcaster ===
 function broadcastAllPositions(positionConnections, userId, category) {
   const ws = positionConnections.get(userId);
   if (!ws || ws.readyState !== 1) return;
@@ -353,6 +353,10 @@ function broadcastAllPositions(positionConnections, userId, category) {
     };
   }).filter(Boolean);
 
+  // ✅ Log only once per broadcast
+  const symbolNames = positionUpdates.map(p => p.symbol);
+  console.log(`[${userId}] Broadcasting ${symbolNames.length} symbols [${symbolNames.join(', ')}] in category '${category}'`);
+
   ws.send(JSON.stringify({
     type: 'bulk-position-update',
     positions: positionUpdates,
@@ -361,6 +365,13 @@ function broadcastAllPositions(positionConnections, userId, category) {
     category,
   }));
 }
+
+
+
+
+
+
+
 
 // === Real-time Broadcast on Symbol Price Update ===
 export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
@@ -376,6 +387,9 @@ export function broadcastPositionData(positionConnections, symbol, symbolData, c
     broadcastAllPositions(positionConnections, userId, category);
   }
 }
+
+
+
 
 
 
