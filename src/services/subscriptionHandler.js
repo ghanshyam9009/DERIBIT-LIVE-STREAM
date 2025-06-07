@@ -300,6 +300,8 @@ export async function triggerPNLUpdate(req, res) {
   symbols.forEach(symbol => symbolSet.add(symbol));
   catMap.set(category, symbolSet);
 
+  console.log("trigeered hogaya")
+
   broadcastAllPositions(req.app.get('positionConnections'), userId, category);
 
   res.send('Triggered PnL Update Successfully');
