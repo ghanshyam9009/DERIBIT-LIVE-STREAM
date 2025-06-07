@@ -421,19 +421,65 @@ export function broadcastPositionData(positionConnections, symbol, symbolData, c
 
 
 
-export function handleUnsubscribe2(req, res) {
-  const { userId, category, symbols = [] } = req.body;
-  const ws = req.app.get('userConnections').get(userId);
+// export function handleUnsubscribe2(req, res) {
+//   const { userId, category, symbols = [] } = req.body;
+//   const ws = req.app.get('userConnections').get(userId);
 
-  if (!userSubscriptions.has(userId)) return res.send('No subscriptions for user');
+//   if (!userSubscriptions.has(userId)) return res.send('No subscriptions for user');
+//   const catMap = userSubscriptions.get(userId);
+//   if (!catMap.has(category)) return res.send('No such category');
+
+//   const symbolSet = catMap.get(category);
+//   symbols.forEach(symbol => symbolSet.delete(symbol));
+
+//   if (ws && ws.readyState === 1) {
+//     symbols.forEach(symbol => {
+//       ws.send(JSON.stringify({
+//         type: 'unsubscribed',
+//         symbol,
+//         category
+//       }));
+//     });
+//   }
+
+//   if (symbolSet.size === 0) catMap.delete(category);
+//   if (catMap.size === 0) userSubscriptions.delete(userId);
+
+//   res.send(`Unsubscribed ${symbols.length} symbols for user ${userId}`);
+// }
+
+
+
+export function handleUnsubscribe2(req, res) {
+  const { userId, category } = req.body;
+  const ws = req.app.get('positionConnections').get(userId);
+
+  if (!userSubscriptions.has(userId)) {
+    console.log(`No subscriptions for user: ${userId}`);
+    return res.send('No subscriptions for user');
+  }
+
   const catMap = userSubscriptions.get(userId);
-  if (!catMap.has(category)) return res.send('No such category');
+  if (!catMap.has(category)) {
+    console.log(`No such category for user: ${category}`);
+    return res.send('No such category');
+  }
 
   const symbolSet = catMap.get(category);
-  symbols.forEach(symbol => symbolSet.delete(symbol));
+  const symbolsToRemove = [...symbolSet]; // extract all subscribed symbols
+  const removedCount = symbolsToRemove.length;
 
+  // Delete entire symbol set for the category
+  catMap.delete(category);
+
+  // Clean up userSubscriptions if category map becomes empty
+  if (catMap.size === 0) {
+    userSubscriptions.delete(userId);
+  }
+
+  // Notify via WebSocket
   if (ws && ws.readyState === 1) {
-    symbols.forEach(symbol => {
+    symbolsToRemove.forEach(symbol => {
       ws.send(JSON.stringify({
         type: 'unsubscribed',
         symbol,
@@ -442,13 +488,8 @@ export function handleUnsubscribe2(req, res) {
     });
   }
 
-  if (symbolSet.size === 0) catMap.delete(category);
-  if (catMap.size === 0) userSubscriptions.delete(userId);
-
-  res.send(`Unsubscribed ${symbols.length} symbols for user ${userId}`);
+  res.send(`Unsubscribed ${removedCount} symbols from category "${category}" for user ${userId}`);
 }
-
-
 
 
 
