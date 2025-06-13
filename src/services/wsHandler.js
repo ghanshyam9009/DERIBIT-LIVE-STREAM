@@ -51,6 +51,8 @@ export function startWebSocketForCurrency(currency, symbols) {
             originalData: data,
             calculated: calculations,
           };
+          
+          // console.log(symbolDataStore[symbol])
 
           storeSymbolDataByDate(currency, date, symbol, symbolDataStore[symbol]);
 
