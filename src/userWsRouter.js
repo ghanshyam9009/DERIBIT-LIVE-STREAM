@@ -2,7 +2,7 @@ import express from 'express';
 import { handleSubscribe, handleUnsubscribe, handleCancelWs } from './services/userStreamHandler.js';
 import { handleSubscribe1,handleUnsubscribe2,handleCancelPositionWs,triggerPNLUpdate} from './services/subscriptionHandler.js';
 import { getDatesByCurrency } from './services/symbolStore.js';
-
+import { subscribeSymbol,unsubscribeSymbol, cancelOrderTrackingWss } from './services/orderTrackingHandlers.js';
 
 const router = express.Router();
 
@@ -17,6 +17,9 @@ router.post('/external-unsubscribe', handleUnsubscribe2);
 router.post('/cancel-position-ws', handleCancelPositionWs);
 
 
+router.post('/get-subscribe', subscribeSymbol);
+router.post('/get-unsubscribe', unsubscribeSymbol);
+router.post('/cancel-ordertracking-ws', cancelOrderTrackingWss);
 
 
 router.post('/dates', (req, res) => {

@@ -1,8 +1,11 @@
 
-import { broadcastToUsers} from './userStreamHandler.js';
+
+
+import { broadcastToUsers } from './userStreamHandler.js';
 // broadcastPositionData
-import { userConnections, positionConnections } from '../server.js';
+import { userConnections, positionConnections, orderTrackingConnections } from '../server.js';
 import { broadcastPositionData } from './subscriptionHandler.js';
+import { broadcastOrderTracking } from './orderTrackingHandlers.js';
 
 const fullStore = new Map(); // Map<currency, Map<date, Map<symbol, data>>>
 
@@ -16,10 +19,14 @@ function ensureNestedMap(currency, date) {
 export function storeSymbolDataByDate(currency, date, symbol, symbolData) {
   const symbolMap = ensureNestedMap(currency, date);
   symbolMap.set(symbol, symbolData);
-    // ✅ Broadcast to both `option_chain` and `option_chain_symbol` subscribers
-    broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain');
-    broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain_symbol');
-    broadcastPositionData(positionConnections,symbol, symbolData, 'position');
+  
+  // Broadcast updates to other modules/streams
+  broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain');
+  broadcastToUsers(userConnections, currency, date, symbol, symbolData, 'option_chain_symbol');
+  broadcastPositionData(positionConnections, symbol, symbolData, 'position');
+
+  // Broadcast order tracking data continuously for updated symbol
+  broadcastOrderTracking(symbol, orderTrackingConnections, symbolData,'order-tracking-data');
 }
 
 export function getSymbolDataByDate(currency, date, symbol) {
@@ -39,10 +46,12 @@ export function getFullSymbolDataMap() {
   return fullStore;
 }
 
-
-
 export function getDatesByCurrency(currency) {
   if (!currency) return { error: 'Currency is required' };
   const dates = getAllDates(currency);
   return { currency, dates };
 }
+
+
+
+
