@@ -76,78 +76,76 @@ export function getOrderTrackingWss(req, res) {
 }
 
 // Broadcast data for one symbol to all connected clients
-// export function broadcastOrderTracking(symbol, connections) {
-//   if (!trackedSymbols.has(symbol)) return;
-
-//   let data = {};
-//   if (isFuturesSymbol(symbol)) {
-//     data = getDeltaSymbolData(symbol);
-//   } else if (isOptionSymbol(symbol)) {
-//     const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-//     data = getSymbolDataByDate(currency, date, symbol);
-//   }
-
-//   if (!data || Object.keys(data).length === 0) {
-//     console.log(`[Broadcast] No data found for symbol ${symbol}`);
-//     return;
-//   }
-
-//   console.log(`[Broadcast] Sending data for symbol ${symbol}`, data);
-
-//   broadcastSymbolUpdate(connections, 'symbol-data', symbol, data);
-// }
 
 
-// export function broadcastOrderTracking(symbol, connections) {
-//   if (!symbol) return;
+// export function broadcastOrderTracking(symbol, connections, symbolData, type = 'order-tracking-data') {
+//   if (!symbol || !trackedSymbols.has(symbol)) return;
 
-//   if (!trackedSymbols.has(symbol)) return;  // Only broadcast if symbol is tracked
+//   const data = symbolData || (
+//     isFuturesSymbol(symbol)
+//       ? getDeltaSymbolData(symbol)
+//       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
+//   );
 
-//   let data = {};
-//   if (isFuturesSymbol(symbol)) {
-//     data = getDeltaSymbolData(symbol);
-//   } else if (isOptionSymbol(symbol)) {
-//     const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-//     data = getSymbolDataByDate(currency, date, symbol);
-//   }
-
-//   if (!data || Object.keys(data).length === 0) {
-//     console.log(`[Broadcast] No order tracking data found for symbol ${symbol}`);
-//     return;
-//   }
+//   if (!data || Object.keys(data).length === 0) return;
 
 //   for (const ws of connections) {
 //     if (ws.readyState === 1) {
-//       try {
-//         ws.send(JSON.stringify({
-//           type: 'order-tracking-data',
-//           symbol,
-//           data
-//         }));
-//       } catch (err) {
-//         console.error(`Failed to send order tracking data for symbol ${symbol}`, err);
-//       }
+//       ws.send(JSON.stringify({ type, symbol, data }));
 //     }
 //   }
 // }
 
-export function broadcastOrderTracking(symbol, connections, symbolData, type = 'order-tracking-data') {
+// Global state: collected mark prices for all symbols
+export const latestBroadcastData = {};
+
+export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   if (!symbol || !trackedSymbols.has(symbol)) return;
 
-  const data = symbolData || (
+  const rawData = symbolData || (
     isFuturesSymbol(symbol)
       ? getDeltaSymbolData(symbol)
       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
   );
 
-  if (!data || Object.keys(data).length === 0) return;
+  if (!rawData || typeof rawData !== 'object') return;
+
+  // Normalize mark price
+  let markPrice;
+
+  if (isFuturesSymbol(symbol)) {
+    markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
+  } else if (isOptionSymbol(symbol)) {
+    // Try calculated.best_ask_price.value first, then fallback to originalData.mark_price
+    markPrice = parseFloat(
+      rawData.calculated?.best_ask_price?.value ??
+      rawData.originalData?.mark_price ??
+      rawData.originalData?.last_price ??
+      0
+    );
+  }
+
+  if (!markPrice || isNaN(markPrice)) return;
+
+  // Update global object
+  latestBroadcastData[symbol] = { mark_price: markPrice };
+
+  const message = JSON.stringify({
+    type: 'order-tracking-data',
+    data: latestBroadcastData
+  });
 
   for (const ws of connections) {
     if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type, symbol, data }));
+      try {
+        ws.send(message);
+      } catch (err) {
+        console.error(`[WS Error] Failed to send for ${symbol}`, err);
+      }
     }
   }
 }
+
 
 // Internal function to send JSON data to all connected clients
 function broadcastSymbolUpdate(connections, type, symbol, data) {
