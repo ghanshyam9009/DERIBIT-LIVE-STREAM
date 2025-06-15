@@ -98,35 +98,53 @@ export function getOrderTrackingWss(req, res) {
 // }
 
 
-export function broadcastOrderTracking(symbol, connections) {
-  if (!symbol) return;
+// export function broadcastOrderTracking(symbol, connections) {
+//   if (!symbol) return;
 
-  if (!trackedSymbols.has(symbol)) return;  // Only broadcast if symbol is tracked
+//   if (!trackedSymbols.has(symbol)) return;  // Only broadcast if symbol is tracked
 
-  let data = {};
-  if (isFuturesSymbol(symbol)) {
-    data = getDeltaSymbolData(symbol);
-  } else if (isOptionSymbol(symbol)) {
-    const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-    data = getSymbolDataByDate(currency, date, symbol);
-  }
+//   let data = {};
+//   if (isFuturesSymbol(symbol)) {
+//     data = getDeltaSymbolData(symbol);
+//   } else if (isOptionSymbol(symbol)) {
+//     const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+//     data = getSymbolDataByDate(currency, date, symbol);
+//   }
 
-  if (!data || Object.keys(data).length === 0) {
-    console.log(`[Broadcast] No order tracking data found for symbol ${symbol}`);
-    return;
-  }
+//   if (!data || Object.keys(data).length === 0) {
+//     console.log(`[Broadcast] No order tracking data found for symbol ${symbol}`);
+//     return;
+//   }
+
+//   for (const ws of connections) {
+//     if (ws.readyState === 1) {
+//       try {
+//         ws.send(JSON.stringify({
+//           type: 'order-tracking-data',
+//           symbol,
+//           data
+//         }));
+//       } catch (err) {
+//         console.error(`Failed to send order tracking data for symbol ${symbol}`, err);
+//       }
+//     }
+//   }
+// }
+
+export function broadcastOrderTracking(symbol, connections, symbolData, type = 'order-tracking-data') {
+  if (!symbol || !trackedSymbols.has(symbol)) return;
+
+  const data = symbolData || (
+    isFuturesSymbol(symbol)
+      ? getDeltaSymbolData(symbol)
+      : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
+  );
+
+  if (!data || Object.keys(data).length === 0) return;
 
   for (const ws of connections) {
     if (ws.readyState === 1) {
-      try {
-        ws.send(JSON.stringify({
-          type: 'order-tracking-data',
-          symbol,
-          data
-        }));
-      } catch (err) {
-        console.error(`Failed to send order tracking data for symbol ${symbol}`, err);
-      }
+      ws.send(JSON.stringify({ type, symbol, data }));
     }
   }
 }
