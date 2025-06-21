@@ -53,7 +53,7 @@ export async function handleSubscribe1(req, res) {
   try {
     const { Items } = await dynamoClient.send(dynamoCommand);
     if (!Items || !Items.length) return res.status(400).send("No data found.");
-    userPositions = Items.map((item) => unmarshall(item));
+    userPositions = Items.map((item) => unmarshall(item)).filter((pos) => pos.status === 'OPEN');
     userActivePositions.set(userId, userPositions);
   } catch (err) {
     return res.status(500).send("Failed to fetch positions");
@@ -93,7 +93,7 @@ export async function triggerPNLUpdate(req, res) {
   try {
     const { Items } = await dynamoClient.send(dynamoCommand);
     if (!Items || !Items.length) return res.status(400).send("No data found.");
-    userPositions = Items.map((item) => unmarshall(item));
+    userPositions = Items.map((item) => unmarshall(item)).filter((pos) => pos.status === 'OPEN');
     userActivePositions.set(userId, userPositions);
   } catch (err) {
     return res.status(500).send("Failed to fetch positions");
