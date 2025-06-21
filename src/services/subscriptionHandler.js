@@ -130,6 +130,7 @@ function broadcastAllPositions(positionConnections, userId, category) {
         leverage,
         positionType,
         entryPrice,
+        positionId,
       } = userPos;
       let data = {};
 
@@ -162,6 +163,7 @@ function broadcastAllPositions(positionConnections, userId, category) {
 
       return {
         symbol,
+        positionId,
         markPrice,
         entryPrice,
         quantity,
@@ -185,6 +187,7 @@ function broadcastAllPositions(positionConnections, userId, category) {
     JSON.stringify({
       type: "bulk-position-update",
       positions: positionUpdates,
+      //  positions: positionUpdates,
       totalPNL: Number(totalPNL.toFixed(2)),
       totalInvested: Number(totalInvested.toFixed(2)),
       category,
