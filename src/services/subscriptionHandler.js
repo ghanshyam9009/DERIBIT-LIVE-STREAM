@@ -112,6 +112,90 @@ export async function triggerPNLUpdate(req, res) {
 }
 
 // === Central Position Broadcaster ===// === Cleaned Position Broadcaster ===
+// function broadcastAllPositions(positionConnections, userId, category) {
+//   const ws = positionConnections.get(userId);
+//   if (!ws || ws.readyState !== 1) return;
+
+//   const userPositions = userActivePositions.get(userId);
+//   if (!userPositions || !userPositions.length) return;
+
+//   let totalPNL = 0;
+//   let totalInvested = 0;
+
+//   const positionUpdates = userPositions
+//     .map((userPos) => {
+//       const {
+//         assetSymbol: symbol,
+//         quantity,
+//         leverage,
+//         positionType,
+//         entryPrice,
+//         positionId,
+//       } = userPos;
+//       let data = {};
+
+//       if (isFuturesSymbol(symbol)) {
+//         data = getDeltaSymbolData(symbol);
+//       } else if (isOptionSymbol(symbol)) {
+//         const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+//         data = getSymbolDataByDate(currency, date, symbol);
+//       }
+
+//       // const markPrice = parseFloat(data.markPrice ?? data.mark_price);
+//       // if (!markPrice || isNaN(markPrice)) return null;
+
+//       let markPrice = Number(data?.mark_price);
+//       if (!markPrice || isNaN(markPrice)) {
+//         markPrice = Number(data?.calculated?.mark_price?.value);
+//       }
+
+//       if (!markPrice || isNaN(markPrice)) return null;
+
+//       const invested = entryPrice * quantity;
+//       let pnl = 0;
+//       if (positionType === "LONG") pnl = (markPrice - entryPrice) * quantity;
+//       else if (positionType === "SHORT")
+//         pnl = (entryPrice - markPrice) * quantity;
+
+//       const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+//       totalPNL += pnl;
+//       totalInvested += invested;
+
+//       return {
+//         symbol,
+//         positionId,
+//         markPrice,
+//         entryPrice,
+//         quantity,
+//         leverage,
+//         positionType,
+//         pnl: Number(pnl.toFixed(2)),
+//         pnlPercentage: Number(pnlPercentage.toFixed(2)),
+//       };
+//     })
+//     .filter(Boolean);
+
+//   // ✅ Log only once per broadcast
+//   const symbolNames = positionUpdates.map((p) => p.symbol);
+//   console.log(
+//     `[${userId}] Broadcasting ${symbolNames.length} symbols [${symbolNames.join(
+//       ", "
+//     )}] in category '${category}'`
+//   );
+
+//   ws.send(
+//     JSON.stringify({
+//       type: "bulk-position-update",
+//       positions: positionUpdates,
+//       //  positions: positionUpdates,
+//       totalPNL: Number(totalPNL.toFixed(2)),
+//       totalInvested: Number(totalInvested.toFixed(2)),
+//       category,
+//     })
+//   );
+// }
+
+
 function broadcastAllPositions(positionConnections, userId, category) {
   const ws = positionConnections.get(userId);
   if (!ws || ws.readyState !== 1) return;
@@ -121,6 +205,7 @@ function broadcastAllPositions(positionConnections, userId, category) {
 
   let totalPNL = 0;
   let totalInvested = 0;
+  const slotSize = 0.001; // 1 slot = 0.001 quantity
 
   const positionUpdates = userPositions
     .map((userPos) => {
@@ -132,8 +217,8 @@ function broadcastAllPositions(positionConnections, userId, category) {
         entryPrice,
         positionId,
       } = userPos;
-      let data = {};
 
+      let data = {};
       if (isFuturesSymbol(symbol)) {
         data = getDeltaSymbolData(symbol);
       } else if (isOptionSymbol(symbol)) {
@@ -141,21 +226,21 @@ function broadcastAllPositions(positionConnections, userId, category) {
         data = getSymbolDataByDate(currency, date, symbol);
       }
 
-      // const markPrice = parseFloat(data.markPrice ?? data.mark_price);
-      // if (!markPrice || isNaN(markPrice)) return null;
-
       let markPrice = Number(data?.mark_price);
       if (!markPrice || isNaN(markPrice)) {
         markPrice = Number(data?.calculated?.mark_price?.value);
       }
-
       if (!markPrice || isNaN(markPrice)) return null;
 
-      const invested = entryPrice * quantity;
+      const slots = quantity / slotSize;
+      const invested = entryPrice * slots;
       let pnl = 0;
-      if (positionType === "LONG") pnl = (markPrice - entryPrice) * quantity;
-      else if (positionType === "SHORT")
-        pnl = (entryPrice - markPrice) * quantity;
+
+      if (positionType === "LONG") {
+        pnl = (markPrice - entryPrice) * slots;
+      } else if (positionType === "SHORT") {
+        pnl = (entryPrice - markPrice) * slots;
+      }
 
       const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
       totalPNL += pnl;
@@ -166,34 +251,30 @@ function broadcastAllPositions(positionConnections, userId, category) {
         positionId,
         markPrice,
         entryPrice,
-        quantity,
+        quantity: slots, // Show as number of slots/contracts
         leverage,
         positionType,
-        pnl: Number(pnl.toFixed(2)),
+        pnl: Number(pnl.toFixed(6)), // more precise
         pnlPercentage: Number(pnlPercentage.toFixed(2)),
       };
     })
     .filter(Boolean);
 
-  // ✅ Log only once per broadcast
-  const symbolNames = positionUpdates.map((p) => p.symbol);
-  console.log(
-    `[${userId}] Broadcasting ${symbolNames.length} symbols [${symbolNames.join(
-      ", "
-    )}] in category '${category}'`
-  );
+  const payload = {
+    type: "bulk-position-update",
+    positions: positionUpdates,
+    totalPNL: Number(totalPNL.toFixed(6)),
+    totalInvested: Number(totalInvested.toFixed(4)),
+    category,
+  };
 
-  ws.send(
-    JSON.stringify({
-      type: "bulk-position-update",
-      positions: positionUpdates,
-      //  positions: positionUpdates,
-      totalPNL: Number(totalPNL.toFixed(2)),
-      totalInvested: Number(totalInvested.toFixed(2)),
-      category,
-    })
-  );
+  console.log(`[${userId}] Sending WS Payload:\n`, JSON.stringify(payload, null, 2));
+  ws.send(JSON.stringify(payload));
 }
+
+
+
+
 
 // === Real-time Broadcast on Symbol Price Update ===
 export function broadcastPositionData(
