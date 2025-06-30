@@ -215,7 +215,11 @@ server.on('upgrade', (req, socket, head) => {
 app.post('/restart-server', async (req, res) => {
   try {
     console.log('♻️ Restart requested via API');
-    process.exit(1); // Trigger PM2 or EC2 restart policy
+    // process.exit(1); // Trigger PM2 or EC2 restart policy
+
+    setTimeout(() => {
+      process.exit(1); // Trigger restart via PM2
+    }, 2000);
   } catch (err) {
     console.error('❌ Restart failed:', err);
     res.status(500).json({ error: 'Failed to restart server' });
