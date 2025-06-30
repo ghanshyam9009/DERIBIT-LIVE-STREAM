@@ -268,7 +268,7 @@ function broadcastAllPositions(positionConnections, userId, category) {
     category,
   };
 
-  console.log(`[${userId}] Sending WS Payload:\n`, JSON.stringify(payload, null, 2));
+  // console.log(`[${userId}] Sending WS Payload:\n`, JSON.stringify(payload, null, 2));
   ws.send(JSON.stringify(payload));
 }
 
