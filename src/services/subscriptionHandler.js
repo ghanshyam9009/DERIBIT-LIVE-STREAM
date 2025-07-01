@@ -232,14 +232,16 @@ function broadcastAllPositions(positionConnections, userId, category) {
       }
       if (!markPrice || isNaN(markPrice)) return null;
 
-      const slots = quantity / slotSize;
-      const invested = entryPrice * slots;
+      // const slots = quantity / slotSize;
+      const invested = entryPrice * quantity;
       let pnl = 0;
 
       if (positionType === "LONG") {
-        pnl = (markPrice - entryPrice) * slots;
+        // pnl = (markPrice - entryPrice) * slots;
+        pnl = (markPrice - entryPrice) * quantity;
       } else if (positionType === "SHORT") {
-        pnl = (entryPrice - markPrice) * slots;
+        // pnl = (entryPrice - markPrice) * slots;
+        pnl = (markPrice - entryPrice) * quantity;
       }
 
       const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
@@ -251,7 +253,8 @@ function broadcastAllPositions(positionConnections, userId, category) {
         positionId,
         markPrice,
         entryPrice,
-        quantity: slots, // Show as number of slots/contracts
+        // quantity: slots, // Show as number of slots/contracts
+        quantity,
         leverage,
         positionType,
         pnl: Number(pnl.toFixed(6)), // more precise
