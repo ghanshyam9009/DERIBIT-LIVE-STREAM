@@ -1,3 +1,14 @@
+
+
+
+
+
+
+
+
+
+
+
 import { getDeltaSymbolData } from "./deltaSymbolStore.js";
 import { getSymbolDataByDate } from "./symbolStore.js";
 import {
@@ -8,12 +19,14 @@ import {
 import {
   DynamoDBClient,
   QueryCommand,
+  UpdateItemCommand,
   ListTablesCommand,
 } from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
+import { unmarshall, marshall } from "@aws-sdk/util-dynamodb";
 
 export const userSubscriptions = new Map();
 const userActivePositions = new Map();
+const userRealizedTodayPnL = new Map();
 
 const dynamoClient = new DynamoDBClient({ region: "ap-southeast-1" });
 
@@ -28,7 +41,185 @@ export async function checkDynamoConnection() {
 }
 checkDynamoConnection();
 
-// === Subscribe User to Position Category ===
+function isTodayCustom(timestamp) {
+  const now = new Date();
+  const start = new Date();
+  start.setHours(13, 25, 0, 0);
+  const end = new Date(start);
+  if (now < start) {
+    start.setDate(start.getDate() - 1);
+    end.setDate(end.getDate() - 1);
+  }
+  end.setDate(start.getDate() + 1);
+  return timestamp >= start.getTime() && timestamp < end.getTime();
+}
+
+async function getUserBankBalance(userId) {
+  const cmd = new QueryCommand({
+    TableName: "incrypto-dev-funds",
+    KeyConditionExpression: "userId = :uid",
+    ExpressionAttributeValues: {
+      ":uid": { S: userId },
+    },
+  });
+  try {
+    const { Items } = await dynamoClient.send(cmd);
+    const fund = Items && Items.length ? unmarshall(Items[0]) : null;
+    return fund?.availableBalance || 0;
+  } catch (err) {
+    console.error("❌ Error fetching fund data:", err);
+    return 0;
+  }
+}
+
+async function squareOffUser(userId) {
+  const openPositions = userActivePositions.get(userId) || [];
+  const now = new Date().toISOString();
+
+  for (const pos of openPositions) {
+    let data = {};
+    if (isFuturesSymbol(pos.assetSymbol)) {
+      data = getDeltaSymbolData(pos.assetSymbol);
+    } else if (isOptionSymbol(pos.assetSymbol)) {
+      const [currency, date] = getCurrencyAndDateFromSymbol(pos.assetSymbol);
+      data = getSymbolDataByDate(currency, date, pos.assetSymbol);
+    }
+
+    let markPrice = Number(data?.mark_price);
+    if (!markPrice || isNaN(markPrice)) {
+      markPrice = Number(data?.calculated?.mark_price?.value);
+    }
+    if (!markPrice || isNaN(markPrice)) continue;
+
+    const pnl = (pos.positionType === "LONG")
+      ? (markPrice - pos.entryPrice) * pos.quantity
+      : (pos.entryPrice - markPrice) * pos.quantity;
+
+    const updateCmd = new UpdateItemCommand({
+      TableName: "incrypto-dev-positions",
+      Key: marshall({ positionId: pos.positionId }),
+      UpdateExpression:
+        "SET #s = :closed, exitPrice = :exitPrice, pnl = :pnl, realizedPnL = :pnl, exitTime = :now, closedAt = :now",
+      ExpressionAttributeNames: { "#s": "status" },
+      ExpressionAttributeValues: marshall({
+        ":closed": "CLOSED",
+        ":exitPrice": markPrice,
+        ":pnl": pnl,
+        ":now": now,
+      }),
+    });
+
+    try {
+      await dynamoClient.send(updateCmd);
+    } catch (err) {
+      console.error(`❌ Failed to update position ${pos.positionId}:`, err);
+    }
+  }
+
+  // Set availableBalance to 0
+  const updateFundsCmd = new UpdateItemCommand({
+    TableName: "incrypto-dev-funds",
+    Key: marshall({ userId }),
+    UpdateExpression: "SET availableBalance = :zero",
+    ExpressionAttributeValues: marshall({ ":zero": 0 }),
+  });
+
+  try {
+    await dynamoClient.send(updateFundsCmd);
+    console.log(`✅ User ${userId} balance set to 0 and positions closed`);
+  } catch (err) {
+    console.error(`❌ Failed to update balance for ${userId}:`, err);
+  }
+}
+
+export async function broadcastAllPositions(positionConnections, userId, category) {
+  const ws = positionConnections.get(userId);
+  if (!ws || ws.readyState !== 1) return;
+
+  const userPositions = userActivePositions.get(userId);
+  if (!userPositions || !userPositions.length) return;
+
+  let totalPNL = 0;
+  let totalInvested = 0;
+
+  const positionUpdates = userPositions.map((userPos) => {
+    const {
+      assetSymbol: symbol,
+      quantity,
+      leverage,
+      positionType,
+      entryPrice,
+      positionId,
+    } = userPos;
+
+    let data = {};
+    if (isFuturesSymbol(symbol)) {
+      data = getDeltaSymbolData(symbol);
+    } else if (isOptionSymbol(symbol)) {
+      const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+      data = getSymbolDataByDate(currency, date, symbol);
+    }
+
+    let markPrice = Number(data?.mark_price);
+    if (!markPrice || isNaN(markPrice)) {
+      markPrice = Number(data?.calculated?.mark_price?.value);
+    }
+    if (!markPrice || isNaN(markPrice)) return null;
+
+    const invested = entryPrice * quantity;
+    const pnl = positionType === "LONG"
+      ? (markPrice - entryPrice) * quantity
+      : (entryPrice - markPrice) * quantity;
+
+    const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+    totalPNL += pnl;
+    totalInvested += invested;
+
+    return {
+      symbol,
+      positionId,
+      markPrice,
+      entryPrice,
+      quantity,
+      leverage,
+      positionType,
+      pnl: Number(pnl.toFixed(6)),
+      pnlPercentage: Number(pnlPercentage.toFixed(2)),
+    };
+  }).filter(Boolean);
+
+  const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
+  const netPNL = totalPNL + realizedTodayPNL;
+
+  getUserBankBalance(userId).then((userBankBalance) => {
+    const maxAllowedLoss = userBankBalance - totalInvested;
+    if (netPNL < -Math.abs(maxAllowedLoss)) {
+      console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
+      squareOffUser(userId);
+
+      ws.send(JSON.stringify({
+        type: "auto-squareoff",
+        reason: "Loss limit breached",
+        netPNL,
+        maxAllowedLoss,
+      }));
+      return;
+    }
+
+    const payload = {
+      type: "bulk-position-update",
+      positions: positionUpdates,
+      totalPNL: Number(totalPNL.toFixed(6)),
+      totalInvested: Number(totalInvested.toFixed(4)),
+      category,
+    };
+
+    ws.send(JSON.stringify(payload));
+  });
+}
+
+
+
 export async function handleSubscribe1(req, res) {
   const { userId, category } = req.body;
   const ws = req.app.get("positionConnections").get(userId);
@@ -111,175 +302,8 @@ export async function triggerPNLUpdate(req, res) {
   res.send("Triggered PnL Update Successfully");
 }
 
-// === Central Position Broadcaster ===// === Cleaned Position Broadcaster ===
-// function broadcastAllPositions(positionConnections, userId, category) {
-//   const ws = positionConnections.get(userId);
-//   if (!ws || ws.readyState !== 1) return;
-
-//   const userPositions = userActivePositions.get(userId);
-//   if (!userPositions || !userPositions.length) return;
-
-//   let totalPNL = 0;
-//   let totalInvested = 0;
-
-//   const positionUpdates = userPositions
-//     .map((userPos) => {
-//       const {
-//         assetSymbol: symbol,
-//         quantity,
-//         leverage,
-//         positionType,
-//         entryPrice,
-//         positionId,
-//       } = userPos;
-//       let data = {};
-
-//       if (isFuturesSymbol(symbol)) {
-//         data = getDeltaSymbolData(symbol);
-//       } else if (isOptionSymbol(symbol)) {
-//         const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-//         data = getSymbolDataByDate(currency, date, symbol);
-//       }
-
-//       // const markPrice = parseFloat(data.markPrice ?? data.mark_price);
-//       // if (!markPrice || isNaN(markPrice)) return null;
-
-//       let markPrice = Number(data?.mark_price);
-//       if (!markPrice || isNaN(markPrice)) {
-//         markPrice = Number(data?.calculated?.mark_price?.value);
-//       }
-
-//       if (!markPrice || isNaN(markPrice)) return null;
-
-//       const invested = entryPrice * quantity;
-//       let pnl = 0;
-//       if (positionType === "LONG") pnl = (markPrice - entryPrice) * quantity;
-//       else if (positionType === "SHORT")
-//         pnl = (entryPrice - markPrice) * quantity;
-
-//       const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
-//       totalPNL += pnl;
-//       totalInvested += invested;
-
-//       return {
-//         symbol,
-//         positionId,
-//         markPrice,
-//         entryPrice,
-//         quantity,
-//         leverage,
-//         positionType,
-//         pnl: Number(pnl.toFixed(2)),
-//         pnlPercentage: Number(pnlPercentage.toFixed(2)),
-//       };
-//     })
-//     .filter(Boolean);
-
-//   // ✅ Log only once per broadcast
-//   const symbolNames = positionUpdates.map((p) => p.symbol);
-//   console.log(
-//     `[${userId}] Broadcasting ${symbolNames.length} symbols [${symbolNames.join(
-//       ", "
-//     )}] in category '${category}'`
-//   );
-
-//   ws.send(
-//     JSON.stringify({
-//       type: "bulk-position-update",
-//       positions: positionUpdates,
-//       //  positions: positionUpdates,
-//       totalPNL: Number(totalPNL.toFixed(2)),
-//       totalInvested: Number(totalInvested.toFixed(2)),
-//       category,
-//     })
-//   );
-// }
 
 
-function broadcastAllPositions(positionConnections, userId, category) {
-  const ws = positionConnections.get(userId);
-  if (!ws || ws.readyState !== 1) return;
-
-  const userPositions = userActivePositions.get(userId);
-  if (!userPositions || !userPositions.length) return;
-
-  let totalPNL = 0;
-  let totalInvested = 0;
-  const slotSize = 0.001; // 1 slot = 0.001 quantity
-
-  const positionUpdates = userPositions
-    .map((userPos) => {
-      const {
-        assetSymbol: symbol,
-        quantity,
-        leverage,
-        positionType,
-        entryPrice,
-        positionId,
-      } = userPos;
-
-      let data = {};
-      if (isFuturesSymbol(symbol)) {
-        data = getDeltaSymbolData(symbol);
-      } else if (isOptionSymbol(symbol)) {
-        const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-        data = getSymbolDataByDate(currency, date, symbol);
-      }
-
-      let markPrice = Number(data?.mark_price);
-      if (!markPrice || isNaN(markPrice)) {
-        markPrice = Number(data?.calculated?.mark_price?.value);
-      }
-      if (!markPrice || isNaN(markPrice)) return null;
-
-      // const slots = quantity / slotSize;
-      const invested = entryPrice * quantity;
-      let pnl = 0;
-
-      if (positionType === "LONG") {
-        // pnl = (markPrice - entryPrice) * slots;
-        pnl = (markPrice - entryPrice) * quantity;
-      } else if (positionType === "SHORT") {
-        // pnl = (entryPrice - markPrice) * slots;
-        pnl = (markPrice - entryPrice) * quantity;
-      }
-
-      const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
-      totalPNL += pnl;
-      totalInvested += invested;
-
-      return {
-        symbol,
-        positionId,
-        markPrice,
-        entryPrice,
-        // quantity: slots, // Show as number of slots/contracts
-        quantity,
-        leverage,
-        positionType,
-        pnl: Number(pnl.toFixed(6)), // more precise
-        pnlPercentage: Number(pnlPercentage.toFixed(2)),
-      };
-    })
-    .filter(Boolean);
-
-  const payload = {
-    type: "bulk-position-update",
-    positions: positionUpdates,
-    totalPNL: Number(totalPNL.toFixed(6)),
-    totalInvested: Number(totalInvested.toFixed(4)),
-    category,
-  };
-
-  // console.log(`[${userId}] Sending WS Payload:\n`, JSON.stringify(payload, null, 2));
-  ws.send(JSON.stringify(payload));
-}
-
-
-
-
-
-// === Real-time Broadcast on Symbol Price Update ===
 export function broadcastPositionData(
   positionConnections,
   symbol,

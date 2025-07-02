@@ -75,26 +75,6 @@ export function getOrderTrackingWss(req, res) {
   res.send({ activeConnections: connections.size });
 }
 
-// Broadcast data for one symbol to all connected clients
-
-
-// export function broadcastOrderTracking(symbol, connections, symbolData, type = 'order-tracking-data') {
-//   if (!symbol || !trackedSymbols.has(symbol)) return;
-
-//   const data = symbolData || (
-//     isFuturesSymbol(symbol)
-//       ? getDeltaSymbolData(symbol)
-//       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-//   );
-
-//   if (!data || Object.keys(data).length === 0) return;
-
-//   for (const ws of connections) {
-//     if (ws.readyState === 1) {
-//       ws.send(JSON.stringify({ type, symbol, data }));
-//     }
-//   }
-// }
 
 // Global state: collected mark prices for all symbols
 export const latestBroadcastData = {};
@@ -118,7 +98,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   } else if (isOptionSymbol(symbol)) {
     // Try calculated.best_ask_price.value first, then fallback to originalData.mark_price
     markPrice = parseFloat(
-      rawData.calculated?.best_ask_price?.value ??
+      rawData.calculated?.mark_price?.value ??
       rawData.originalData?.mark_price ??
       rawData.originalData?.last_price ??
       0
