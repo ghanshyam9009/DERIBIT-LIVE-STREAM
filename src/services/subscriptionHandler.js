@@ -142,7 +142,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       contributionAmount,
       takeProfit,
       stopLoss,
-      openedAt, // ⬅️ used for returning in response
+      openedAt
     } = userPos;
 
     let data = {};
@@ -168,42 +168,26 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     totalPNL += pnl;
     totalInvested += invested;
 
-    // 🔁 Update optional fields in DB if they exist
-    const updateFields = [];
-    const exprAttrNames = { "#updatedAt": "updatedAt" };
-    const exprAttrValues = { ":updatedAt": { S: new Date().toISOString() } };
+    // 🔁 Always update DB fields regardless of null
+    const updateCmd = new UpdateItemCommand({
+      TableName: "incrypto-dev-positions",
+      Key: marshall({ positionId }),
+      UpdateExpression: `SET contributionAmount = :contributionAmount,
+                         takeProfit = :takeProfit,
+                         stopLoss = :stopLoss,
+                         updatedAt = :updatedAt`,
+      ExpressionAttributeValues: marshall({
+        ":contributionAmount": contributionAmount ?? 0,
+        ":takeProfit": takeProfit ?? null,
+        ":stopLoss": stopLoss ?? null,
+        ":updatedAt": new Date().toISOString(),
+      }),
+    });
 
-    if (contributionAmount !== undefined && contributionAmount !== null) {
-      updateFields.push("contributionAmount = :contributionAmount");
-      exprAttrValues[":contributionAmount"] = { N: contributionAmount.toString() };
-    }
-    if (takeProfit !== undefined && takeProfit !== null) {
-      updateFields.push("#takeProfit = :takeProfit");
-      exprAttrNames["#takeProfit"] = "takeProfit";
-      exprAttrValues[":takeProfit"] = { M: marshall(takeProfit) };
-    }
-    if (stopLoss !== undefined && stopLoss !== null) {
-      updateFields.push("#stopLoss = :stopLoss");
-      exprAttrNames["#stopLoss"] = "stopLoss";
-      exprAttrValues[":stopLoss"] = { M: marshall(stopLoss) };
-    }
-
-    if (updateFields.length) {
-      updateFields.push("#updatedAt = :updatedAt");
-
-      const updateCmd = new UpdateItemCommand({
-        TableName: "incrypto-dev-positions",
-        Key: marshall({ positionId }),
-        UpdateExpression: `SET ${updateFields.join(", ")}`,
-        ExpressionAttributeNames: exprAttrNames,
-        ExpressionAttributeValues: exprAttrValues,
-      });
-
-      try {
-        await dynamoClient.send(updateCmd);
-      } catch (err) {
-        console.error(`❌ Failed to update extra fields for position ${positionId}:`, err);
-      }
+    try {
+      await dynamoClient.send(updateCmd);
+    } catch (err) {
+      console.error(`❌ Failed to update fields for position ${positionId}:`, err);
     }
 
     return {
@@ -216,7 +200,10 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       positionType,
       pnl: Number(pnl.toFixed(6)),
       pnlPercentage: Number(pnlPercentage.toFixed(2)),
-      openedAt, // ⬅️ Added to position update payload
+      openedAt,
+      contributionAmount,
+      stopLoss,
+      takeProfit,
     };
   }));
 
@@ -250,6 +237,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     ws.send(JSON.stringify(payload));
   });
 }
+
 
 
 
