@@ -1,14 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
 import { getDeltaSymbolData } from "./deltaSymbolStore.js";
 import { getSymbolDataByDate } from "./symbolStore.js";
 import {
@@ -142,7 +131,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   let totalPNL = 0;
   let totalInvested = 0;
 
-  const positionUpdates = userPositions.map((userPos) => {
+  const positionUpdates = await Promise.all(userPositions.map(async (userPos) => {
     const {
       assetSymbol: symbol,
       quantity,
@@ -150,6 +139,10 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       positionType,
       entryPrice,
       positionId,
+      contributionAmount,
+      takeProfit,
+      stopLoss,
+      openedAt, // ⬅️ used for returning in response
     } = userPos;
 
     let data = {};
@@ -175,6 +168,44 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     totalPNL += pnl;
     totalInvested += invested;
 
+    // 🔁 Update optional fields in DB if they exist
+    const updateFields = [];
+    const exprAttrNames = { "#updatedAt": "updatedAt" };
+    const exprAttrValues = { ":updatedAt": { S: new Date().toISOString() } };
+
+    if (contributionAmount !== undefined && contributionAmount !== null) {
+      updateFields.push("contributionAmount = :contributionAmount");
+      exprAttrValues[":contributionAmount"] = { N: contributionAmount.toString() };
+    }
+    if (takeProfit !== undefined && takeProfit !== null) {
+      updateFields.push("#takeProfit = :takeProfit");
+      exprAttrNames["#takeProfit"] = "takeProfit";
+      exprAttrValues[":takeProfit"] = { M: marshall(takeProfit) };
+    }
+    if (stopLoss !== undefined && stopLoss !== null) {
+      updateFields.push("#stopLoss = :stopLoss");
+      exprAttrNames["#stopLoss"] = "stopLoss";
+      exprAttrValues[":stopLoss"] = { M: marshall(stopLoss) };
+    }
+
+    if (updateFields.length) {
+      updateFields.push("#updatedAt = :updatedAt");
+
+      const updateCmd = new UpdateItemCommand({
+        TableName: "incrypto-dev-positions",
+        Key: marshall({ positionId }),
+        UpdateExpression: `SET ${updateFields.join(", ")}`,
+        ExpressionAttributeNames: exprAttrNames,
+        ExpressionAttributeValues: exprAttrValues,
+      });
+
+      try {
+        await dynamoClient.send(updateCmd);
+      } catch (err) {
+        console.error(`❌ Failed to update extra fields for position ${positionId}:`, err);
+      }
+    }
+
     return {
       symbol,
       positionId,
@@ -185,9 +216,11 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       positionType,
       pnl: Number(pnl.toFixed(6)),
       pnlPercentage: Number(pnlPercentage.toFixed(2)),
+      openedAt, // ⬅️ Added to position update payload
     };
-  }).filter(Boolean);
+  }));
 
+  const filteredUpdates = positionUpdates.filter(Boolean);
   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
   const netPNL = totalPNL + realizedTodayPNL;
 
@@ -208,7 +241,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
     const payload = {
       type: "bulk-position-update",
-      positions: positionUpdates,
+      positions: filteredUpdates,
       totalPNL: Number(totalPNL.toFixed(6)),
       totalInvested: Number(totalInvested.toFixed(4)),
       category,
