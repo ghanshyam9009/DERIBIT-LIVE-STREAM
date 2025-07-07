@@ -204,9 +204,9 @@ function setupWebSocketConnection() {
         storeDeltaSymbolData(symbol, normalizedTicker);
   
         // ✅ Print full data ONLY for USDT pairs
-        if (symbol.endsWith("USDT")) {
-          console.log(normalizedTicker);
-        }
+        // if (symbol.endsWith("USDT")) {
+        //   console.log(normalizedTicker);
+        // }
       }
     } catch (err) {
       console.error("❌ Failed to parse Binance message:", err);
