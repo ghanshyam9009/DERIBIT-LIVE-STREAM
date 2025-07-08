@@ -32,7 +32,7 @@ export function isOptionSymbol(symbol) {
 
 export function isFuturesSymbol(symbol) {
   // Match format like BTCUSD, ETHUSD
-  return /^[A-Z]+USD$/.test(symbol);
+  return /^[A-Z]+USDT$/.test(symbol);
 }
 
 export function getCurrencyAndDateFromSymbol(symbol) {
