@@ -288,7 +288,7 @@ export async function handleSubscribe1(req, res) {
   const futuresSet = catMap.get("futures") || new Set();
   userPositions.forEach((pos) => {
     if (isFuturesSymbol(pos.assetSymbol)) {
-      console.log(assetSymbol)
+      console.log(pos.assetSymbol)
       futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
     }
   });
