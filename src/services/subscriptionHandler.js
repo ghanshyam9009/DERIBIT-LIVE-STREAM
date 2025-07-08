@@ -127,6 +127,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   if (!ws || ws.readyState !== 1) return;
 
   const userPositions = userActivePositions.get(userId);
+  // console.log(userActivePositions)
   if (!userPositions || !userPositions.length) return;
 
   let totalPNL = 0;
@@ -148,7 +149,12 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
     let data = {};
     if (isFuturesSymbol(symbol)) {
-      data = getDeltaSymbolData(symbol);
+      // console.log(data)
+      // data = getDeltaSymbolData(symbol);
+      const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+      // console.log(normalizedSymbol)
+      data = getDeltaSymbolData(normalizedSymbol);
+      // console.log("nn",data)
     } else if (isOptionSymbol(symbol)) {
       const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
       data = getSymbolDataByDate(currency, date, symbol);
@@ -288,14 +294,17 @@ export async function handleSubscribe1(req, res) {
   const futuresSet = catMap.get("futures") || new Set();
   userPositions.forEach((pos) => {
     if (isFuturesSymbol(pos.assetSymbol)) {
-      console.log(pos.assetSymbol)
+      // console.log(pos.assetSymbol)
       futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
+      // console.log(pos.assetSymbol)
+      // console.log(futuresSet)
     }
   });
   catMap.set("futures", futuresSet);
 
   // ✅ Final update
   userSubscriptions.set(userId, catMap);
+  // console.log(catMap)
 
   broadcastAllPositions(req.app.get("positionConnections"), userId, category);
 
