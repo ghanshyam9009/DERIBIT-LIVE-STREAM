@@ -1,5 +1,6 @@
 import { getDeltaSymbolData } from "./deltaSymbolStore.js";
 import { getSymbolDataByDate } from "./symbolStore.js";
+// import {}
 import {
   getCurrencyAndDateFromSymbol,
   isFuturesSymbol,
@@ -238,7 +239,10 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   });
 }
 
-
+function normalizeToBinanceSymbol(symbol) {
+  if (!symbol) return '';
+  return symbol.endsWith('USDT') ? symbol : symbol.replace('USD', 'USDT');
+}
 
 
 export async function handleSubscribe1(req, res) {
@@ -275,9 +279,22 @@ export async function handleSubscribe1(req, res) {
   if (!symbols.length)
     return res.status(400).send("No active asset symbols found");
 
+  // ✅ Register current category symbols
   const symbolSet = catMap.get(category) || new Set();
   symbols.forEach((symbol) => symbolSet.add(symbol));
   catMap.set(category, symbolSet);
+
+  // ✅ ALSO register futures symbols under "futures" category
+  const futuresSet = catMap.get("futures") || new Set();
+  userPositions.forEach((pos) => {
+    if (isFuturesSymbol(pos.assetSymbol)) {
+      futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
+    }
+  });
+  catMap.set("futures", futuresSet);
+
+  // ✅ Final update
+  userSubscriptions.set(userId, catMap);
 
   broadcastAllPositions(req.app.get("positionConnections"), userId, category);
 
@@ -316,13 +333,23 @@ export async function triggerPNLUpdate(req, res) {
   symbols.forEach((symbol) => symbolSet.add(symbol));
   catMap.set(category, symbolSet);
 
+  // ✅ ALSO register futures symbols under "futures" category
+  const futuresSet = catMap.get("futures") || new Set();
+  userPositions.forEach((pos) => {
+    if (isFuturesSymbol(pos.assetSymbol)) {
+      futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
+    }
+  });
+  catMap.set("futures", futuresSet);
+
+  userSubscriptions.set(userId, catMap);
+
   console.log("trigeered hogaya");
 
   broadcastAllPositions(req.app.get("positionConnections"), userId, category);
 
   res.send("Triggered PnL Update Successfully");
 }
-
 
 
 export function broadcastPositionData(
