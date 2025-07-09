@@ -136,6 +136,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   const positionUpdates = await Promise.all(userPositions.map(async (userPos) => {
     const {
       assetSymbol: symbol,
+      orderID,
       quantity,
       leverage,
       positionType,
@@ -199,7 +200,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
     return {
       symbol,
-      orderID: userPos.orderID ?? null, // ✅ broadcast orderID
+      orderID, // ✅ broadcast orderID
       positionId,
       markPrice,
       entryPrice,
