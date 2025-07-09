@@ -147,6 +147,8 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       stopLoss,
       openedAt
     } = userPos;
+    
+    console.log(orderID)
 
     let data = {};
     if (isFuturesSymbol(symbol)) {
