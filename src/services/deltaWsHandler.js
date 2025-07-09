@@ -164,57 +164,57 @@ function setupWebSocketConnection() {
     }
   });
 
-  ws.on('message', (data) => {
-    try {
-      const parsed = JSON.parse(data);
-      const ticker = parsed?.data;
-      if (ticker && ticker.s) {
-        const symbol = ticker.s;
-        storeDeltaSymbolData(symbol, ticker);
-
-        // 🔍 Log parsed data
-        if(symbol=="BTCUSDT"){
-          console.log(`📊 ${symbol} → Price: ${ticker.c} | Change: ${ticker.P}% | Volume: ${ticker.v}`);
-        }
-        
-      }
-    } catch (err) {
-      console.error("❌ Failed to parse Binance message:", err);
-    }
-  });
-
   // ws.on('message', (data) => {
   //   try {
   //     const parsed = JSON.parse(data);
   //     const ticker = parsed?.data;
-  
   //     if (ticker && ticker.s) {
   //       const symbol = ticker.s;
-  
-  //       // ✅ Normalize Binance ticker format to Delta format
-  //       const normalizedTicker = {
-  //         ...ticker,
-  //         high: ticker.h,
-  //         low: ticker.l,
-  //         mark_price: ticker.c,           // Last price
-  //         mark_change_24h: ticker.P,      // % Change in 24hr
-  //         volume: ticker.v,
-  //         underlying_asset_symbol: symbol.replace("USDT", ""),
-  //         description: `${symbol} Perpetual`
-  //       };
-  
-  //       // ✅ Store in Delta format (no change to your store logic)
-  //       storeDeltaSymbolData(symbol, normalizedTicker);
-  
-  //       // ✅ Print full data ONLY for USDT pairs
-  //       // if (symbol.endsWith("USDT")) {
-  //       //   console.log(normalizedTicker);
-  //       // }
+  //       storeDeltaSymbolData(symbol, ticker);
+
+  //       // 🔍 Log parsed data
+  //       if(symbol=="BTCUSDT"){
+  //         console.log(`📊 ${symbol} → Price: ${ticker.c} | Change: ${ticker.P}% | Volume: ${ticker.v}`);
+  //       }
+        
   //     }
   //   } catch (err) {
   //     console.error("❌ Failed to parse Binance message:", err);
   //   }
   // });
+
+  ws.on('message', (data) => {
+    try {
+      const parsed = JSON.parse(data);
+      const ticker = parsed?.data;
+  
+      if (ticker && ticker.s) {
+        const symbol = ticker.s;
+  
+        // ✅ Normalize Binance ticker format to Delta format
+        const normalizedTicker = {
+          ...ticker,
+          high: ticker.h,
+          low: ticker.l,
+          mark_price: ticker.c,           // Last price
+          mark_change_24h: ticker.P,      // % Change in 24hr
+          volume: ticker.v,
+          underlying_asset_symbol: symbol.replace("USDT", ""),
+          description: `${symbol} Perpetual`
+        };
+  
+        // ✅ Store in Delta format (no change to your store logic)
+        storeDeltaSymbolData(symbol, normalizedTicker);
+  
+        // ✅ Print full data ONLY for USDT pairs
+        // if (symbol.endsWith("USDT")) {
+        //   console.log(normalizedTicker);
+        // }
+      }
+    } catch (err) {
+      console.error("❌ Failed to parse Binance message:", err);
+    }
+  });
   
 
   
