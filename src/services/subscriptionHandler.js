@@ -199,6 +199,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
     return {
       symbol,
+      orderID: userPos.orderID ?? null, // ✅ broadcast orderID
       positionId,
       markPrice,
       entryPrice,
