@@ -12,22 +12,19 @@ function normalizeToBinanceSymbol(symbol) {
   return symbol.endsWith('USDT') ? symbol : symbol.replace('USD', 'USDT');
 }
 
-// Subscribe a symbol globally
-// export function subscribeSymbol(req, res) {
-//   const { symbol } = req.body;
-//   const connections = req.app.get('orderTrackingConnections'); // Assume Set of WS clients
+function isSymbolTrackedFlexible(symbol) {
+  const normalized = normalizeToBinanceSymbol(symbol); // BTCUSDT
+  const fallback = symbol.replace('USDT', 'USD');       // BTCUSD
 
-//   if (!symbol || typeof symbol !== 'string') {
-//     return res.status(400).send("Missing or invalid symbol");
-//   }
+  return trackedSymbols.has(symbol) || trackedSymbols.has(normalized) || trackedSymbols.has(fallback);
+}
 
-//   trackedSymbols.add(symbol);
 
-//   // Immediately broadcast data for this symbol to all connected clients
-//   broadcastOrderTracking(symbol, connections);
+function getInternalSymbol(symbol) {
+  if (!symbol || symbol.endsWith('USDT')) return symbol;
+  return symbol.replace('USD', 'USDT');
+}
 
-//   res.send(`Subscribed to symbol ${symbol}`);
-// }
 
 export function subscribeSymbol(req, res) {
   let { symbol } = req.body;
@@ -37,9 +34,12 @@ export function subscribeSymbol(req, res) {
     return res.status(400).send("Missing or invalid symbol");
   }
 
-  symbol = normalizeToBinanceSymbol(symbol); // ✅ Normalize here
+  const internalSymbol = getInternalSymbol(symbol); // Normalize once
 
   trackedSymbols.add(symbol);
+  if (internalSymbol !== symbol) {
+    trackedSymbols.add(internalSymbol);
+  }
 
   broadcastOrderTracking(symbol, connections);
 
@@ -122,46 +122,56 @@ export function getOrderTrackingWss(req, res) {
 // Global state: collected mark prices for all symbols
 export const latestBroadcastData = {};
 
+
+
 // export function broadcastOrderTracking(symbol, connections, symbolData = null) {
-//   if (!symbol || !trackedSymbols.has(symbol)) return;
+//   const internalSymbol = getInternalSymbol(symbol); // BTCUSDT
 
-//   // const rawData = symbolData || (
-//   //   isFuturesSymbol(symbol)
-//   //     ? getDeltaSymbolData(symbol)
-//   //     : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-//   // );
+//   if (!internalSymbol || (!trackedSymbols.has(symbol) && !trackedSymbols.has(internalSymbol))) {
+//     return;
+//   }
 
-//   const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+//   // ✅ Check both variations (BTCUSD or BTCUSDT)
+//   const isFutures = isFuturesSymbol(symbol) || isFuturesSymbol(internalSymbol);
+//   const isOption = isOptionSymbol(symbol) || isOptionSymbol(internalSymbol);
 
 //   const rawData = symbolData || (
-//     isFuturesSymbol(normalizedSymbol)
-//       ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
+//     isFutures
+//       ? getDeltaSymbolData(internalSymbol)
 //       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-//   );  
+//   );
 
+//   if (!rawData || typeof rawData !== 'object') {
+//     console.log(`[OrderTracking] No valid data for symbol: ${internalSymbol}`);
+//     return;
+//   }
 
-
-//   if (!rawData || typeof rawData !== 'object') return;
-
-//   // Normalize mark price
 //   let markPrice;
 
-//   if (isFuturesSymbol(symbol)) {
+//   if (isFutures) {
+//     console.log(`[OrderTracking] Handling as Futures symbol`);
 //     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
-//   } else if (isOptionSymbol(symbol)) {
-//     // Try calculated.best_ask_price.value first, then fallback to originalData.mark_price
+//   } else if (isOption) {
+//     console.log(`[OrderTracking] Handling as Option symbol`);
 //     markPrice = parseFloat(
 //       rawData.calculated?.mark_price?.value ??
 //       rawData.originalData?.mark_price ??
 //       rawData.originalData?.last_price ??
 //       0
 //     );
-//   }  
+//   } else {
+//     console.log(`[OrderTracking] Unknown symbol type for: ${symbol}`);
+//     return;
+//   }
 
-//   if (!markPrice || isNaN(markPrice)) return;
+//   if (!markPrice || isNaN(markPrice)) {
+//     console.log(`[OrderTracking] Invalid markPrice for symbol: ${symbol}`, rawData);
+//     return;
+//   }
 
-//   // Update global object
-//   latestBroadcastData[symbol] = { mark_price: markPrice };
+//   console.log(`[OrderTracking] Broadcasting markPrice: ${markPrice} for symbol: ${internalSymbol}`);
+
+//   latestBroadcastData[internalSymbol] = { mark_price: markPrice };
 
 //   const message = JSON.stringify({
 //     type: 'order-tracking-data',
@@ -172,78 +182,15 @@ export const latestBroadcastData = {};
 //     if (ws.readyState === 1) {
 //       try {
 //         ws.send(message);
+//         console.log(`[OrderTracking] Sent data to client for symbol: ${internalSymbol}`);
 //       } catch (err) {
-//         console.error(`[WS Error] Failed to send for ${symbol}`, err);
+//         console.error(`[WS Error] Failed to send for ${internalSymbol}`, err);
 //       }
 //     }
 //   }
 // }
 
-export function broadcastOrderTracking(symbol, connections, symbolData = null) {
-  if (!symbol || !trackedSymbols.has(symbol)) {
-    // console.log(`[OrderTracking] Skipped: Invalid or untracked symbol "${symbol}"`);
-    return;
-  }
 
-  // const normalizedSymbol = normalizeToBinanceSymbol(symbol);
-  // console.log(`[OrderTracking] Normalized Symbol: ${normalizedSymbol}`);
-
-  const rawData = symbolData || (
-    isFuturesSymbol(symbol)
-      ? getDeltaSymbolData(symbol)
-      : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-  );
-
-  if (!rawData || typeof rawData !== 'object') {
-    console.log(`[OrderTracking] No valid data for symbol: ${symbol}`);
-    return;
-  }
-
-  // Normalize mark price
-  let markPrice;
-
-  if (isFuturesSymbol(symbol)) {
-    console.log(`[OrderTracking] Handling as Futures symbol`);
-    markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
-  } else if (isOptionSymbol(symbol)) {
-    console.log(`[OrderTracking] Handling as Option symbol`);
-    markPrice = parseFloat(
-      rawData.calculated?.mark_price?.value ??
-      rawData.originalData?.mark_price ??
-      rawData.originalData?.last_price ??
-      0
-    );
-  } else {
-    console.log(`[OrderTracking] Unknown symbol type for: ${symbol}`);
-    return;
-  }
-
-  if (!markPrice || isNaN(markPrice)) {
-    console.log(`[OrderTracking] Invalid markPrice for symbol: ${symbol}`, rawData);
-    return;
-  }
-
-  console.log(`[OrderTracking] Broadcasting markPrice: ${markPrice} for symbol: ${symbol}`);
-
-  // Update global object
-  latestBroadcastData[symbol] = { mark_price: markPrice };
-
-  const message = JSON.stringify({
-    type: 'order-tracking-data',
-    data: latestBroadcastData
-  });
-
-  for (const ws of connections) {
-    if (ws.readyState === 1) {
-      try {
-        ws.send(message);
-        console.log(`[OrderTracking] Sent data to client for symbol: ${symbol}`);
-      } catch (err) {
-        console.error(`[WS Error] Failed to send for ${symbol}`, err);
-      }
-    }
-  }
-}
 
 // Internal function to send JSON data to all connected clients
 function broadcastSymbolUpdate(connections, type, symbol, data) {
@@ -257,6 +204,42 @@ function broadcastSymbolUpdate(connections, type, symbol, data) {
         }));
       } catch (e) {
         console.error(`Failed to send WS message for symbol ${symbol}`, e);
+      }
+    }
+  }
+}
+
+
+export function broadcastOrderTracking(symbol, connections, symbolData = null) {
+  const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+  if (!trackedSymbols.has(symbol) && !trackedSymbols.has(normalizedSymbol)) return;
+
+  const rawData = symbolData || getDeltaSymbolData(normalizedSymbol);
+  if (!rawData || typeof rawData !== 'object') {
+    console.log(`[OrderTracking] No valid data for symbol: ${normalizedSymbol}`);
+    return;
+  }
+
+  const markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
+  if (!markPrice || isNaN(markPrice)) {
+    console.log(`[OrderTracking] Invalid markPrice for symbol: ${normalizedSymbol}`, rawData);
+    return;
+  }
+
+  latestBroadcastData[normalizedSymbol] = { mark_price: markPrice };
+
+  const message = JSON.stringify({
+    type: 'order-tracking-data',
+    data: latestBroadcastData
+  });
+
+  for (const ws of connections) {
+    if (ws.readyState === 1) {
+      try {
+        ws.send(message);
+        // console.log(`[OrderTracking] Sent data to client for symbol: ${normalizedSymbol}`);
+      } catch (err) {
+        console.error(`[WS Error] Failed to send for ${normalizedSymbol}`, err);
       }
     }
   }
