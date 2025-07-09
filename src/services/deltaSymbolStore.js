@@ -22,7 +22,9 @@ export function storeDeltaSymbolData(symbol, symbolData) {
 
 
   broadcastPositionData( positionConnections, symbol, symbolData, 'position');
+  // broadcastOrderTracking(symbol, orderTrackingConnections, symbolData, 'order-tracking-data');
   broadcastOrderTracking(symbol, orderTrackingConnections, symbolData, 'order-tracking-data');
+
 }
 
 

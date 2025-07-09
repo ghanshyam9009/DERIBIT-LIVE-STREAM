@@ -97,7 +97,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   const normalizedSymbol = normalizeToBinanceSymbol(symbol);
 
   const rawData = symbolData || (
-    isFuturesSymbol(symbol)
+    isFuturesSymbol(normalizedSymbol)
       ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
   );  
@@ -109,7 +109,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   // Normalize mark price
   let markPrice;
 
-  if (isFuturesSymbol(normalizedSymbol)) {
+  if (isFuturesSymbol(symbol)) {
     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
   } else if (isOptionSymbol(symbol)) {
     // Try calculated.best_ask_price.value first, then fallback to originalData.mark_price
