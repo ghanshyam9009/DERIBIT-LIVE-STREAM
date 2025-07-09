@@ -421,6 +421,69 @@ export function broadcastAllTrackedSymbols(req, res) {
 // -------------------------
 // Core Broadcast Function
 // -------------------------
+// export function broadcastOrderTracking(symbol, connections, symbolData = null) {
+//   const normalized = normalizeToBinanceSymbol(symbol);
+
+//   if (!trackedSymbols.has(normalized)) return;
+
+//   const isFutures = isBinanceFuturesSymbol(normalized);
+//   const isOption = isOptionSymbol(normalized);
+
+//   const rawData =
+//     symbolData ||
+//     (isFutures
+//       ? getDeltaSymbolData(normalized)
+//       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(normalized), normalized));
+
+//   if (!rawData || typeof rawData !== 'object') {
+//     console.log(`[OrderTracking] No valid data for symbol: ${normalized}`);
+//     return;
+//   }
+
+//   let markPrice = 0;
+
+//   if (isFutures) {
+//     // console.log(`[OrderTracking] Handling as Futures symbol`);
+//     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
+//   } else if (isOption) {
+//     // console.log(`[OrderTracking] Handling as Option symbol`);
+//     markPrice = parseFloat(
+//       rawData.calculated?.mark_price?.value ??
+//         rawData.originalData?.mark_price ??
+//         rawData.originalData?.last_price ??
+//         0
+//     );
+//   } else {
+//     console.log(`[OrderTracking] Unknown symbol type for: ${normalized}`);
+//     return;
+//   }
+
+//   if (!markPrice || isNaN(markPrice)) {
+//     console.log(`[OrderTracking] Invalid markPrice for symbol: ${normalized}`, rawData);
+//     return;
+//   }
+
+//   // console.log(`[OrderTracking] Broadcasting markPrice: ${markPrice} for symbol: ${normalized}`);
+//   latestBroadcastData[normalized] = { mark_price: markPrice };
+
+//   const message = JSON.stringify({
+//     type: 'order-tracking-data',
+//     data: latestBroadcastData,
+//   });
+
+//   for (const ws of connections) {
+//     if (ws.readyState === 1) {
+//       try {
+//         ws.send(message);
+//         // console.log(`[OrderTracking] Sent data to client for symbol: ${normalized}`);
+//       } catch (err) {
+//         console.error(`[WS Error] Failed to send for ${normalized}`, err);
+//       }
+//     }
+//   }
+// }
+
+
 export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   const normalized = normalizeToBinanceSymbol(symbol);
 
@@ -443,15 +506,13 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   let markPrice = 0;
 
   if (isFutures) {
-    // console.log(`[OrderTracking] Handling as Futures symbol`);
     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
   } else if (isOption) {
-    // console.log(`[OrderTracking] Handling as Option symbol`);
     markPrice = parseFloat(
       rawData.calculated?.mark_price?.value ??
-        rawData.originalData?.mark_price ??
-        rawData.originalData?.last_price ??
-        0
+      rawData.originalData?.mark_price ??
+      rawData.originalData?.last_price ??
+      0
     );
   } else {
     console.log(`[OrderTracking] Unknown symbol type for: ${normalized}`);
@@ -463,8 +524,12 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
     return;
   }
 
-  // console.log(`[OrderTracking] Broadcasting markPrice: ${markPrice} for symbol: ${normalized}`);
-  latestBroadcastData[normalized] = { mark_price: markPrice };
+  // ✅ Rename key if it's a futures symbol (e.g., BTCUSDT → BTCUSD)
+  const broadcastKey = isFutures && normalized.endsWith('USDT')
+    ? normalized.replace('USDT', 'USD')
+    : normalized;
+
+  latestBroadcastData[broadcastKey] = { mark_price: markPrice };
 
   const message = JSON.stringify({
     type: 'order-tracking-data',
@@ -475,9 +540,8 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
     if (ws.readyState === 1) {
       try {
         ws.send(message);
-        // console.log(`[OrderTracking] Sent data to client for symbol: ${normalized}`);
       } catch (err) {
-        console.error(`[WS Error] Failed to send for ${normalized}`, err);
+        console.error(`[WS Error] Failed to send for ${broadcastKey}`, err);
       }
     }
   }
