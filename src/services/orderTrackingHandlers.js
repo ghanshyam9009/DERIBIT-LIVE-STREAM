@@ -152,7 +152,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   console.log(`[OrderTracking] Normalized Symbol: ${normalizedSymbol}`);
 
   const rawData = symbolData || (
-    isFuturesSymbol(normalizedSymbol)
+    isFuturesSymbol(symbol)
       ? getDeltaSymbolData(normalizedSymbol)
       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
   );
@@ -165,7 +165,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   // Normalize mark price
   let markPrice;
 
-  if (isFuturesSymbol(normalizedSymbol)) {
+  if (isFuturesSymbol(symbol)) {
     console.log(`[OrderTracking] Handling as Futures symbol`);
     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
   } else if (isOptionSymbol(symbol)) {
