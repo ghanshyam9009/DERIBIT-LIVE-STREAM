@@ -144,7 +144,7 @@ export const latestBroadcastData = {};
 
 export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   if (!symbol || !trackedSymbols.has(symbol)) {
-    console.log(`[OrderTracking] Skipped: Invalid or untracked symbol "${symbol}"`);
+    // console.log(`[OrderTracking] Skipped: Invalid or untracked symbol "${symbol}"`);
     return;
   }
 
