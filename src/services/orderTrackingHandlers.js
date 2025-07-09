@@ -13,30 +13,68 @@ function normalizeToBinanceSymbol(symbol) {
 }
 
 // Subscribe a symbol globally
+// export function subscribeSymbol(req, res) {
+//   const { symbol } = req.body;
+//   const connections = req.app.get('orderTrackingConnections'); // Assume Set of WS clients
+
+//   if (!symbol || typeof symbol !== 'string') {
+//     return res.status(400).send("Missing or invalid symbol");
+//   }
+
+//   trackedSymbols.add(symbol);
+
+//   // Immediately broadcast data for this symbol to all connected clients
+//   broadcastOrderTracking(symbol, connections);
+
+//   res.send(`Subscribed to symbol ${symbol}`);
+// }
+
 export function subscribeSymbol(req, res) {
-  const { symbol } = req.body;
-  const connections = req.app.get('orderTrackingConnections'); // Assume Set of WS clients
+  let { symbol } = req.body;
+  const connections = req.app.get('orderTrackingConnections');
 
   if (!symbol || typeof symbol !== 'string') {
     return res.status(400).send("Missing or invalid symbol");
   }
 
+  symbol = normalizeToBinanceSymbol(symbol); // ✅ Normalize here
+
   trackedSymbols.add(symbol);
 
-  // Immediately broadcast data for this symbol to all connected clients
   broadcastOrderTracking(symbol, connections);
 
   res.send(`Subscribed to symbol ${symbol}`);
 }
 
 // Unsubscribe a symbol globally
+// export function unsubscribeSymbol(req, res) {
+//   const { symbol } = req.body;
+//   const connections = req.app.get('orderTrackingConnections');
+
+//   if (!symbol || typeof symbol !== 'string') {
+//     return res.status(400).send("Missing or invalid symbol");
+//   }
+
+//   if (!trackedSymbols.has(symbol)) {
+//     return res.status(400).send(`Symbol ${symbol} not currently subscribed`);
+//   }
+
+//   trackedSymbols.delete(symbol);
+
+//   // Broadcast to all clients that this symbol is unsubscribed
+//   broadcastSymbolUpdate(connections, 'unsubscribed', symbol, null);
+
+//   res.send(`Unsubscribed from symbol ${symbol}`);
+// }
 export function unsubscribeSymbol(req, res) {
-  const { symbol } = req.body;
+  let { symbol } = req.body;
   const connections = req.app.get('orderTrackingConnections');
 
   if (!symbol || typeof symbol !== 'string') {
     return res.status(400).send("Missing or invalid symbol");
   }
+
+  symbol = normalizeToBinanceSymbol(symbol); // ✅ Normalize here
 
   if (!trackedSymbols.has(symbol)) {
     return res.status(400).send(`Symbol ${symbol} not currently subscribed`);
@@ -44,7 +82,6 @@ export function unsubscribeSymbol(req, res) {
 
   trackedSymbols.delete(symbol);
 
-  // Broadcast to all clients that this symbol is unsubscribed
   broadcastSymbolUpdate(connections, 'unsubscribed', symbol, null);
 
   res.send(`Unsubscribed from symbol ${symbol}`);
@@ -148,17 +185,17 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
     return;
   }
 
-  const normalizedSymbol = normalizeToBinanceSymbol(symbol);
-  console.log(`[OrderTracking] Normalized Symbol: ${normalizedSymbol}`);
+  // const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+  // console.log(`[OrderTracking] Normalized Symbol: ${normalizedSymbol}`);
 
   const rawData = symbolData || (
     isFuturesSymbol(symbol)
-      ? getDeltaSymbolData(normalizedSymbol)
+      ? getDeltaSymbolData(symbol)
       : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
   );
 
   if (!rawData || typeof rawData !== 'object') {
-    console.log(`[OrderTracking] No valid data for symbol: ${normalizedSymbol}`);
+    console.log(`[OrderTracking] No valid data for symbol: ${symbol}`);
     return;
   }
 
