@@ -475,7 +475,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
     if (ws.readyState === 1) {
       try {
         ws.send(message);
-        console.log(`[OrderTracking] Sent data to client for symbol: ${normalized}`);
+        // console.log(`[OrderTracking] Sent data to client for symbol: ${normalized}`);
       } catch (err) {
         console.error(`[WS Error] Failed to send for ${normalized}`, err);
       }
