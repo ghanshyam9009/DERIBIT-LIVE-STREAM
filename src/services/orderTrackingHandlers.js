@@ -109,7 +109,7 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   // Normalize mark price
   let markPrice;
 
-  if (isFuturesSymbol(symbol)) {
+  if (isFuturesSymbol(normalizedSymbol)) {
     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
   } else if (isOptionSymbol(symbol)) {
     // Try calculated.best_ask_price.value first, then fallback to originalData.mark_price

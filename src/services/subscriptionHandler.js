@@ -20,6 +20,7 @@ const userRealizedTodayPnL = new Map();
 
 const dynamoClient = new DynamoDBClient({ region: "ap-southeast-1" });
 
+
 export async function checkDynamoConnection() {
   try {
     const command = new ListTablesCommand({});
@@ -147,8 +148,8 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       stopLoss,
       openedAt
     } = userPos;
-    
-    console.log(orderID)
+
+    // console.log(orderID)
 
     let data = {};
     if (isFuturesSymbol(symbol)) {
@@ -199,7 +200,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     } catch (err) {
       console.error(`❌ Failed to update fields for position ${positionId}:`, err);
     }
-
+    
     return {
       symbol,
       orderID, // ✅ broadcast orderID
@@ -216,6 +217,8 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       stopLoss,
       takeProfit,
     };
+
+
   }));
 
   const filteredUpdates = positionUpdates.filter(Boolean);
