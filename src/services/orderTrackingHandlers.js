@@ -96,12 +96,11 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
 
   const normalizedSymbol = normalizeToBinanceSymbol(symbol);
 
-const rawData = symbolData || (
-  isFuturesSymbol(symbol)
-    ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
-    : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-);
-
+  const rawData = symbolData || (
+    isFuturesSymbol(symbol)
+      ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
+      : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
+  );  
 
 
 
@@ -110,7 +109,7 @@ const rawData = symbolData || (
   // Normalize mark price
   let markPrice;
 
-  if (isFuturesSymbol(normalizedSymbol)) {
+  if (isFuturesSymbol(symbol)) {
     markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
   } else if (isOptionSymbol(symbol)) {
     // Try calculated.best_ask_price.value first, then fallback to originalData.mark_price
@@ -120,7 +119,7 @@ const rawData = symbolData || (
       rawData.originalData?.last_price ??
       0
     );
-  }
+  }  
 
   if (!markPrice || isNaN(markPrice)) return;
 
