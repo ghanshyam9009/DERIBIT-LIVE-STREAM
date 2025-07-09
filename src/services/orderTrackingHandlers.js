@@ -96,18 +96,14 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
 
   const normalizedSymbol = normalizeToBinanceSymbol(symbol);
 
-// const rawData = symbolData || (
-//   isFuturesSymbol(symbol)
-//     ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
-//     : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-// );
-
-
 const rawData = symbolData || (
-  isFuturesSymbol(normalizedSymbol)
-    ? getDeltaSymbolData(symbol) // ✅ replace with getBinanceFuturesData(normalizedSymbol) when ready
+  isFuturesSymbol(symbol)
+    ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
     : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
 );
+
+
+
 
   if (!rawData || typeof rawData !== 'object') return;
 
