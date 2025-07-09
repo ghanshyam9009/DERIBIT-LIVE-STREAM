@@ -104,8 +104,8 @@ export function broadcastOrderTracking(symbol, connections, symbolData = null) {
 
 
 const rawData = symbolData || (
-  isFuturesSymbol(symbol)
-    ? getDeltaSymbolData(normalizedSymbol) // ✅ replace with getBinanceFuturesData(normalizedSymbol) when ready
+  isFuturesSymbol(normalizedSymbol)
+    ? getDeltaSymbolData(symbol) // ✅ replace with getBinanceFuturesData(normalizedSymbol) when ready
     : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
 );
 
