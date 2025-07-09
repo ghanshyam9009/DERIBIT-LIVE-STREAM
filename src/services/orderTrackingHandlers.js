@@ -6,6 +6,12 @@ import { getCurrencyAndDateFromSymbol, isFuturesSymbol, isOptionSymbol } from '.
 // Global Set of tracked symbols
 export const trackedSymbols = new Set();
 
+
+function normalizeToBinanceSymbol(symbol) {
+  if (!symbol) return '';
+  return symbol.endsWith('USDT') ? symbol : symbol.replace('USD', 'USDT');
+}
+
 // Subscribe a symbol globally
 export function subscribeSymbol(req, res) {
   const { symbol } = req.body;
@@ -82,11 +88,20 @@ export const latestBroadcastData = {};
 export function broadcastOrderTracking(symbol, connections, symbolData = null) {
   if (!symbol || !trackedSymbols.has(symbol)) return;
 
-  const rawData = symbolData || (
-    isFuturesSymbol(symbol)
-      ? getDeltaSymbolData(symbol)
-      : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
-  );
+  // const rawData = symbolData || (
+  //   isFuturesSymbol(symbol)
+  //     ? getDeltaSymbolData(symbol)
+  //     : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
+  // );
+
+  const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+
+const rawData = symbolData || (
+  isFuturesSymbol(symbol)
+    ? getDeltaSymbolData(normalizedSymbol) // ✅ switch later to getBinanceFuturesData(normalizedSymbol)
+    : getSymbolDataByDate(...getCurrencyAndDateFromSymbol(symbol), symbol)
+);
+
 
   if (!rawData || typeof rawData !== 'object') return;
 
