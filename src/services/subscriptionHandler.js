@@ -294,7 +294,9 @@ export async function handleSubscribe1(req, res) {
 
   // ✅ Register current category symbols
   const symbolSet = catMap.get(category) || new Set();
-  symbols.forEach((symbol) => symbolSet.add(symbol));
+  // symbols.forEach((symbol) => symbolSet.add(symbol));
+  symbols.forEach((symbol) => symbolSet.add(normalizeToBinanceSymbol(symbol)));
+
   catMap.set(category, symbolSet);
 
   // ✅ ALSO register futures symbols under "futures" category
@@ -369,12 +371,9 @@ export async function triggerPNLUpdate(req, res) {
 }
 
 
-export function broadcastPositionData(
-  positionConnections,
-  symbol,
-  symbolData,
-  category
-) {
+export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
+  const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+
   for (const [userId, ws] of positionConnections) {
     if (ws.readyState !== 1) continue;
 
@@ -382,11 +381,12 @@ export function broadcastPositionData(
     if (!catMap || !catMap.has(category)) continue;
 
     const subscribedSymbols = catMap.get(category);
-    if (!subscribedSymbols.has(symbol)) continue;
+    if (!subscribedSymbols.has(normalizedSymbol)) continue;
 
     broadcastAllPositions(positionConnections, userId, category);
   }
 }
+
 
 export function handleUnsubscribe2(req, res) {
   const { userId, category } = req.body;
