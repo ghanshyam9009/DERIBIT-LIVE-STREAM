@@ -114,26 +114,26 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     totalPNL += pnl;
     totalInvested += invested;
 
-    const updateCmd = new UpdateItemCommand({
-      TableName: "incrypto-dev-positions",
-      Key: marshall({ positionId }),
-      UpdateExpression: `SET contributionAmount = :contributionAmount,
-                         takeProfit = :takeProfit,
-                         stopLoss = :stopLoss,
-                         updatedAt = :updatedAt`,
-      ExpressionAttributeValues: marshall({
-        ":contributionAmount": contributionAmount ?? 0,
-        ":takeProfit": takeProfit ?? null,
-        ":stopLoss": stopLoss ?? null,
-        ":updatedAt": new Date().toISOString(),
-      }),
-    });
+    // const updateCmd = new UpdateItemCommand({
+    //   TableName: "incrypto-dev-positions",
+    //   Key: marshall({ positionId }),
+    //   UpdateExpression: `SET contributionAmount = :contributionAmount,
+    //                      takeProfit = :takeProfit,
+    //                      stopLoss = :stopLoss,
+    //                      updatedAt = :updatedAt`,
+    //   ExpressionAttributeValues: marshall({
+    //     ":contributionAmount": contributionAmount ?? 0,
+    //     ":takeProfit": takeProfit ?? null,
+    //     ":stopLoss": stopLoss ?? null,
+    //     ":updatedAt": new Date().toISOString(),
+    //   }),
+    // });
 
-    try {
-      await dynamoClient.send(updateCmd);
-    } catch (err) {
-      console.error(`❌ Failed to update fields for position ${positionId}:`, err);
-    }
+    // try {
+    //   await dynamoClient.send(updateCmd);
+    // } catch (err) {
+    //   console.error(`❌ Failed to update fields for position ${positionId}:`, err);
+    // }
 
     return {
       symbol,
