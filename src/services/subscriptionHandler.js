@@ -84,6 +84,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       contributionAmount,
       takeProfit,
       stopLoss,
+      orderType,
       openedAt
     } = userPos;
 
@@ -149,6 +150,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       contributionAmount,
       stopLoss,
       takeProfit,
+      orderType
     };
   }));
 
