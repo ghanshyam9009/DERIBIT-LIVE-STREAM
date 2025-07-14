@@ -128,7 +128,6 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   if (!ws || ws.readyState !== 1) return;
 
   const userPositions = userActivePositions.get(userId);
-  // console.log(userActivePositions)
   if (!userPositions || !userPositions.length) return;
 
   let totalPNL = 0;
@@ -149,16 +148,11 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       openedAt
     } = userPos;
 
-    // console.log(orderID)
-
     let data = {};
+    const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+
     if (isFuturesSymbol(symbol)) {
-      // console.log(data)
-      // data = getDeltaSymbolData(symbol);
-      const normalizedSymbol = normalizeToBinanceSymbol(symbol);
-      // console.log(normalizedSymbol)
       data = getDeltaSymbolData(normalizedSymbol);
-      // console.log("nn",data)
     } else if (isOptionSymbol(symbol)) {
       const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
       data = getSymbolDataByDate(currency, date, symbol);
@@ -171,15 +165,15 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     if (!markPrice || isNaN(markPrice)) return null;
 
     const invested = entryPrice * quantity;
-    const pnl = positionType === "LONG"
-      ? (markPrice - entryPrice) * quantity
-      : (entryPrice - markPrice) * quantity;
+    const isShort = (positionType === "SHORT" || positionType === "SELL");
+    const pnl = isShort
+      ? (entryPrice - markPrice) * quantity
+      : (markPrice - entryPrice) * quantity;
 
     const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
     totalPNL += pnl;
     totalInvested += invested;
 
-    // 🔁 Always update DB fields regardless of null
     const updateCmd = new UpdateItemCommand({
       TableName: "incrypto-dev-positions",
       Key: marshall({ positionId }),
@@ -200,10 +194,10 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     } catch (err) {
       console.error(`❌ Failed to update fields for position ${positionId}:`, err);
     }
-    
+
     return {
       symbol,
-      orderID, // ✅ broadcast orderID
+      orderID,
       positionId,
       markPrice,
       entryPrice,
@@ -217,8 +211,6 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       stopLoss,
       takeProfit,
     };
-
-
   }));
 
   const filteredUpdates = positionUpdates.filter(Boolean);
@@ -229,8 +221,6 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     const maxAllowedLoss = userBankBalance - totalInvested;
     if (netPNL < -Math.abs(maxAllowedLoss)) {
       console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
-      squareOffUser(userId);
-
       ws.send(JSON.stringify({
         type: "auto-squareoff",
         reason: "Loss limit breached",
@@ -252,8 +242,9 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   });
 }
 
+
 function normalizeToBinanceSymbol(symbol) {
-  if (!symbol) return '';
+  if (!symbol || symbol.includes('-')) return symbol;
   return symbol.endsWith('USDT') ? symbol : symbol.replace('USD', 'USDT');
 }
 
@@ -349,10 +340,9 @@ export async function triggerPNLUpdate(req, res) {
 
   const symbols = userPositions.map((pos) => pos.assetSymbol).filter(Boolean);
   const symbolSet = catMap.get(category) || new Set();
-  symbols.forEach((symbol) => symbolSet.add(symbol));
+  symbols.forEach((symbol) => symbolSet.add(normalizeToBinanceSymbol(symbol)));
   catMap.set(category, symbolSet);
 
-  // ✅ ALSO register futures symbols under "futures" category
   const futuresSet = catMap.get("futures") || new Set();
   userPositions.forEach((pos) => {
     if (isFuturesSymbol(pos.assetSymbol)) {
@@ -360,13 +350,10 @@ export async function triggerPNLUpdate(req, res) {
     }
   });
   catMap.set("futures", futuresSet);
-
   userSubscriptions.set(userId, catMap);
 
-  console.log("trigeered hogaya");
-
+  console.log("✅ Manual PnL Update Triggered", userId);
   broadcastAllPositions(req.app.get("positionConnections"), userId, category);
-
   res.send("Triggered PnL Update Successfully");
 }
 
