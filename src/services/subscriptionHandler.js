@@ -1,7 +1,6 @@
 import { getDeltaSymbolData } from "./deltaSymbolStore.js";
 import { getSymbolDataByDate } from "./symbolStore.js";
 import { DateTime } from "luxon";
-import { DateTime } from "luxon";
 import {
   getCurrencyAndDateFromSymbol,
   isFuturesSymbol,
