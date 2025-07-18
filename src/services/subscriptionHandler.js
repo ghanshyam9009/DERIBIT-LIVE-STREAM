@@ -1,6 +1,6 @@
 import { getDeltaSymbolData } from "./deltaSymbolStore.js";
 import { getSymbolDataByDate } from "./symbolStore.js";
-// import {}
+import { DateTime } from "luxon";
 import {
   getCurrencyAndDateFromSymbol,
   isFuturesSymbol,
@@ -31,6 +31,456 @@ export async function checkDynamoConnection() {
   }
 }
 checkDynamoConnection();
+
+
+export async function handleSubscribe1(req, res) {
+  const { userId, category } = req.body;
+  const ws = req.app.get("positionConnections").get(userId);
+
+  if (!ws || ws.readyState !== 1) {
+    return res.status(400).send("User WebSocket not connected");
+  }
+
+  const catMap = userSubscriptions.get(userId) || new Map();
+  userSubscriptions.set(userId, catMap);
+
+  const dynamoCommand = new QueryCommand({
+    TableName: "incrypto-dev-positions",
+    IndexName: "UserIndex",
+    KeyConditionExpression: "userId = :uid",
+    ExpressionAttributeValues: {
+      ":uid": { S: userId },
+    },
+  });
+
+  let allPositions = [];
+  try {
+    const { Items } = await dynamoClient.send(dynamoCommand);
+    if (!Items || !Items.length) return res.status(400).send("No data found.");
+    allPositions = Items.map((item) => unmarshall(item));
+  } catch (err) {
+    return res.status(500).send("Failed to fetch positions");
+  }
+
+  // Only open positions are used for symbol registration
+  const openPositions = allPositions.filter((pos) => pos.status === "OPEN");
+
+  const symbols = openPositions.map((pos) => pos.assetSymbol).filter(Boolean);
+  if (!symbols.length)
+    return res.status(400).send("No active asset symbols found");
+
+  // ✅ Register current category symbols
+  const symbolSet = catMap.get(category) || new Set();
+  symbols.forEach((symbol) => symbolSet.add(normalizeToBinanceSymbol(symbol)));
+  catMap.set(category, symbolSet);
+
+  // ✅ ALSO register futures symbols under "futures" category
+  const futuresSet = catMap.get("futures") || new Set();
+  openPositions.forEach((pos) => {
+    if (isFuturesSymbol(pos.assetSymbol)) {
+      futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
+    }
+  });
+  catMap.set("futures", futuresSet);
+
+  // ✅ Final update to subscription map
+  userSubscriptions.set(userId, catMap);
+
+  // 🚀 Trigger position broadcast with full logic
+  broadcastAllPositions(req.app.get("positionConnections"), userId, category);
+
+  res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
+}
+
+
+export async function broadcastAllPositions(positionConnections, userId, category) {
+  const ws = positionConnections.get(userId);
+  if (!ws || ws.readyState !== 1) return;
+
+  // 🕒 Time range 5:30 AM – 5:30 PM IST
+  const now = DateTime.now().setZone("Asia/Kolkata");
+  const todayStart = now.set({ hour: 5, minute: 30, second: 0, millisecond: 0 });
+  const todayEnd = todayStart.plus({ hours: 12 });
+
+  const dynamoCommand = new QueryCommand({
+    TableName: "incrypto-dev-positions",
+    IndexName: "UserIndex",
+    KeyConditionExpression: "userId = :uid",
+    ExpressionAttributeValues: {
+      ":uid": { S: userId },
+    },
+  });
+
+  let allUserPositions = [];
+  try {
+    const { Items } = await dynamoClient.send(dynamoCommand);
+    allUserPositions = (Items || []).map((item) => unmarshall(item));
+  } catch (err) {
+    console.error("❌ Failed to fetch user positions:", err);
+    return;
+  }
+
+  const openPositions = allUserPositions.filter((pos) => pos.status === "OPEN");
+  const closedPositions = allUserPositions.filter((pos) => {
+    if (pos.status !== "CLOSED" || !pos.closedAt) return false;
+    const closedTime = DateTime.fromISO(pos.closedAt, { zone: "Asia/Kolkata" });
+    return closedTime >= todayStart && closedTime <= todayEnd;
+  });
+
+  let totalOpenPNL = 0;
+  let totalOpenInvested = 0;
+
+  const openPayload = await Promise.all(openPositions.map(async (pos) => {
+    const {
+      assetSymbol: symbol,
+      orderID,
+      positionId,
+      quantity,
+      leverage,
+      positionType,
+      entryPrice,
+      contributionAmount,
+      takeProfit,
+      stopLoss,
+      orderType,
+      openedAt
+    } = pos;
+
+    const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+    let data = {};
+
+    if (isFuturesSymbol(symbol)) {
+      data = getDeltaSymbolData(normalizedSymbol);
+    } else if (isOptionSymbol(symbol)) {
+      const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+      data = getSymbolDataByDate(currency, date, symbol);
+    }
+
+    let markPrice = Number(data?.mark_price);
+    if (!markPrice || isNaN(markPrice)) {
+      markPrice = Number(data?.calculated?.mark_price?.value);
+    }
+    if (!markPrice || isNaN(markPrice)) return null;
+
+    const invested = entryPrice * quantity;
+    const isShort = (positionType === "SHORT" || positionType === "SELL");
+    const pnl = isShort
+      ? (entryPrice - markPrice) * quantity
+      : (markPrice - entryPrice) * quantity;
+
+    const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+    totalOpenPNL += pnl;
+    totalOpenInvested += invested;
+
+    return {
+      symbol,
+      orderID,
+      positionId,
+      markPrice,
+      entryPrice,
+      quantity,
+      leverage,
+      positionType,
+      pnl: Number(pnl.toFixed(6)),
+      pnlPercentage: Number(pnlPercentage.toFixed(2)),
+      invested: Number(invested.toFixed(4)), // 💰 Open position invested amount
+      openedAt,
+      contributionAmount,
+      stopLoss,
+      takeProfit,
+      orderType,
+      status: "OPEN",
+    };
+  }));
+
+  const filteredOpen = openPayload.filter(Boolean);
+
+  let totalClosedPNL = 0;
+  let totalClosedInvested = 0;
+
+  const closedPayload = closedPositions.map((pos) => {
+    const {
+      assetSymbol: symbol,
+      orderID,
+      positionId,
+      entryPrice,
+      quantity,
+      leverage,
+      positionType,
+      pnl,
+      exitPrice,
+      closedAt,
+      contributionAmount,
+      stopLoss,
+      takeProfit,
+      orderType
+    } = pos;
+
+    const invested = entryPrice * quantity;
+    totalClosedInvested += invested;
+    totalClosedPNL += Number(pnl || 0);
+
+    return {
+      symbol,
+      orderID,
+      positionId,
+      exitPrice,
+      entryPrice,
+      quantity,
+      leverage,
+      positionType,
+      pnl: Number(pnl?.toFixed(6) || 0),
+      pnlPercentage: Number(((pnl / invested) * 100).toFixed(2)),
+      invested: Number(invested.toFixed(4)), // 💰 Closed position invested amount
+      closedAt,
+      contributionAmount,
+      stopLoss,
+      takeProfit,
+      orderType,
+      status: "CLOSED",
+    };
+  });
+
+  const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
+  const netPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
+  const userBankBalance = await getUserBankBalance(userId);
+  const maxAllowedLoss = userBankBalance - totalOpenInvested;
+
+  if (netPNL < -Math.abs(maxAllowedLoss)) {
+    console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
+    ws.send(JSON.stringify({
+      type: "auto-squareoff",
+      reason: "Loss limit breached",
+      netPNL,
+      maxAllowedLoss,
+    }));
+    return;
+  }
+
+  const payload = {
+    type: "bulk-position-update",
+    openPositions: filteredOpen,
+    closedPositions: closedPayload,
+    totalPNL: Number((totalOpenPNL + totalClosedPNL).toFixed(6)),
+    totalInvested: Number((totalOpenInvested + totalClosedInvested).toFixed(4)), // ✅ Combined
+    category,
+  };
+
+  ws.send(JSON.stringify(payload));
+}
+
+
+// export async function handleSubscribe1(req, res) {
+//   const { userId, category } = req.body;
+//   const ws = req.app.get("positionConnections").get(userId);
+
+//   if (!ws || ws.readyState !== 1) {
+//     return res.status(400).send("User WebSocket not connected");
+//   }
+
+//   const catMap = userSubscriptions.get(userId) || new Map();
+//   userSubscriptions.set(userId, catMap);
+
+//   const dynamoCommand = new QueryCommand({
+//     TableName: "incrypto-dev-positions",
+//     IndexName: "UserIndex",
+//     KeyConditionExpression: "userId = :uid",
+//     ExpressionAttributeValues: {
+//       ":uid": { S: userId },
+//     },
+//   });
+
+//   let userPositions = [];
+//   try {
+//     const { Items } = await dynamoClient.send(dynamoCommand);
+//     if (!Items || !Items.length) return res.status(400).send("No data found.");
+//     userPositions = Items.map((item) => unmarshall(item)).filter((pos) => pos.status === 'OPEN');
+//     userActivePositions.set(userId, userPositions);
+//   } catch (err) {
+//     return res.status(500).send("Failed to fetch positions");
+//   }
+
+//   const symbols = userPositions.map((pos) => pos.assetSymbol).filter(Boolean);
+//   if (!symbols.length)
+//     return res.status(400).send("No active asset symbols found");
+
+//   // ✅ Register current category symbols
+//   const symbolSet = catMap.get(category) || new Set();
+//   // symbols.forEach((symbol) => symbolSet.add(symbol));
+//   symbols.forEach((symbol) => symbolSet.add(normalizeToBinanceSymbol(symbol)));
+
+//   catMap.set(category, symbolSet);
+
+//   // ✅ ALSO register futures symbols under "futures" category
+//   const futuresSet = catMap.get("futures") || new Set();
+//   userPositions.forEach((pos) => {
+//     if (isFuturesSymbol(pos.assetSymbol)) {
+//       // console.log(pos.assetSymbol)
+//       futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
+//       // console.log(pos.assetSymbol)
+//       // console.log(futuresSet)
+//     }
+//   });
+//   catMap.set("futures", futuresSet);
+
+//   // ✅ Final update
+//   userSubscriptions.set(userId, catMap);
+//   // console.log(catMap)
+
+//   broadcastAllPositions(req.app.get("positionConnections"), userId, category);
+
+//   res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
+// }
+
+
+
+// export async function broadcastAllPositions(positionConnections, userId, category) {
+//   const ws = positionConnections.get(userId);
+//   if (!ws || ws.readyState !== 1) return;
+
+//   const userPositions = userActivePositions.get(userId) || [];
+//   let totalPNL = 0;
+//   let totalInvested = 0;
+
+//   const positionUpdates = await Promise.all(userPositions.map(async (userPos) => {
+//     const {
+//       assetSymbol: symbol,
+//       orderID,
+//       quantity,
+//       leverage,
+//       positionType,
+//       entryPrice,
+//       positionId,
+//       contributionAmount,
+//       takeProfit,
+//       stopLoss,
+//       orderType,
+//       openedAt
+//     } = userPos;
+
+//     let data = {};
+//     const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+
+//     if (isFuturesSymbol(symbol)) {
+//       data = getDeltaSymbolData(normalizedSymbol);
+//     } else if (isOptionSymbol(symbol)) {
+//       const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+//       data = getSymbolDataByDate(currency, date, symbol);
+//     }
+
+//     let markPrice = Number(data?.mark_price);
+//     if (!markPrice || isNaN(markPrice)) {
+//       markPrice = Number(data?.calculated?.mark_price?.value);
+//     }
+//     if (!markPrice || isNaN(markPrice)) return null;
+
+//     const invested = entryPrice * quantity;
+//     const isShort = (positionType === "SHORT" || positionType === "SELL");
+//     const pnl = isShort
+//       ? (entryPrice - markPrice) * quantity
+//       : (markPrice - entryPrice) * quantity;
+
+//     const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+//     totalPNL += pnl;
+//     totalInvested += invested;
+
+//     // const updateCmd = new UpdateItemCommand({
+//     //   TableName: "incrypto-dev-positions",
+//     //   Key: marshall({ positionId }),
+//     //   UpdateExpression: `SET contributionAmount = :contributionAmount,
+//     //                      takeProfit = :takeProfit,
+//     //                      stopLoss = :stopLoss,
+//     //                      updatedAt = :updatedAt`,
+//     //   ExpressionAttributeValues: marshall({
+//     //     ":contributionAmount": contributionAmount ?? 0,
+//     //     ":takeProfit": takeProfit ?? null,
+//     //     ":stopLoss": stopLoss ?? null,
+//     //     ":updatedAt": new Date().toISOString(),
+//     //   }),
+//     // });
+
+//     // try {
+//     //   await dynamoClient.send(updateCmd);
+//     // } catch (err) {
+//     //   console.error(`❌ Failed to update fields for position ${positionId}:`, err);
+//     // }
+
+//     return {
+//       symbol,
+//       orderID,
+//       positionId,
+//       markPrice,
+//       entryPrice,
+//       quantity,
+//       leverage,
+//       positionType,
+//       pnl: Number(pnl.toFixed(6)),
+//       pnlPercentage: Number(pnlPercentage.toFixed(2)),
+//       openedAt,
+//       contributionAmount,
+//       stopLoss,
+//       takeProfit,
+//       orderType
+//     };
+//   }));
+
+//   const filteredUpdates = positionUpdates.filter(Boolean);
+//   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
+//   const netPNL = totalPNL + realizedTodayPNL;
+
+//   const userBankBalance = await getUserBankBalance(userId);
+//   const maxAllowedLoss = userBankBalance - totalInvested;
+
+//   if (netPNL < -Math.abs(maxAllowedLoss)) {
+//     console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
+//     ws.send(JSON.stringify({
+//       type: "auto-squareoff",
+//       reason: "Loss limit breached",
+//       netPNL,
+//       maxAllowedLoss,
+//     }));
+//     return;
+//   }
+
+//   // Always send payload even if positions are empty
+//   const payload = {
+//     type: "bulk-position-update",
+//     positions: filteredUpdates,
+//     totalPNL: Number(totalPNL.toFixed(6)),
+//     totalInvested: Number(totalInvested.toFixed(4)),
+//     category,
+//   };
+
+//   ws.send(JSON.stringify(payload));
+// }
+
+
+
+export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
+  const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+
+  for (const [userId, ws] of positionConnections) {
+    if (ws.readyState !== 1) continue;
+
+    const catMap = userSubscriptions.get(userId);
+    if (!catMap || !catMap.has(category)) continue;
+
+    const subscribedSymbols = catMap.get(category);
+    if (!subscribedSymbols.has(normalizedSymbol)) continue;
+
+    broadcastAllPositions(positionConnections, userId, category);
+  }
+}
+
+
+
+
+
+
+
+
+
+
 
 function isTodayCustom(timestamp) {
   const now = new Date();
@@ -64,125 +514,7 @@ async function getUserBankBalance(userId) {
 }
 
 
-export async function broadcastAllPositions(positionConnections, userId, category) {
-  const ws = positionConnections.get(userId);
-  if (!ws || ws.readyState !== 1) return;
 
-  const userPositions = userActivePositions.get(userId) || [];
-  let totalPNL = 0;
-  let totalInvested = 0;
-
-  const positionUpdates = await Promise.all(userPositions.map(async (userPos) => {
-    const {
-      assetSymbol: symbol,
-      orderID,
-      quantity,
-      leverage,
-      positionType,
-      entryPrice,
-      positionId,
-      contributionAmount,
-      takeProfit,
-      stopLoss,
-      orderType,
-      openedAt
-    } = userPos;
-
-    let data = {};
-    const normalizedSymbol = normalizeToBinanceSymbol(symbol);
-
-    if (isFuturesSymbol(symbol)) {
-      data = getDeltaSymbolData(normalizedSymbol);
-    } else if (isOptionSymbol(symbol)) {
-      const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-      data = getSymbolDataByDate(currency, date, symbol);
-    }
-
-    let markPrice = Number(data?.mark_price);
-    if (!markPrice || isNaN(markPrice)) {
-      markPrice = Number(data?.calculated?.mark_price?.value);
-    }
-    if (!markPrice || isNaN(markPrice)) return null;
-
-    const invested = entryPrice * quantity;
-    const isShort = (positionType === "SHORT" || positionType === "SELL");
-    const pnl = isShort
-      ? (entryPrice - markPrice) * quantity
-      : (markPrice - entryPrice) * quantity;
-
-    const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
-    totalPNL += pnl;
-    totalInvested += invested;
-
-    // const updateCmd = new UpdateItemCommand({
-    //   TableName: "incrypto-dev-positions",
-    //   Key: marshall({ positionId }),
-    //   UpdateExpression: `SET contributionAmount = :contributionAmount,
-    //                      takeProfit = :takeProfit,
-    //                      stopLoss = :stopLoss,
-    //                      updatedAt = :updatedAt`,
-    //   ExpressionAttributeValues: marshall({
-    //     ":contributionAmount": contributionAmount ?? 0,
-    //     ":takeProfit": takeProfit ?? null,
-    //     ":stopLoss": stopLoss ?? null,
-    //     ":updatedAt": new Date().toISOString(),
-    //   }),
-    // });
-
-    // try {
-    //   await dynamoClient.send(updateCmd);
-    // } catch (err) {
-    //   console.error(`❌ Failed to update fields for position ${positionId}:`, err);
-    // }
-
-    return {
-      symbol,
-      orderID,
-      positionId,
-      markPrice,
-      entryPrice,
-      quantity,
-      leverage,
-      positionType,
-      pnl: Number(pnl.toFixed(6)),
-      pnlPercentage: Number(pnlPercentage.toFixed(2)),
-      openedAt,
-      contributionAmount,
-      stopLoss,
-      takeProfit,
-      orderType
-    };
-  }));
-
-  const filteredUpdates = positionUpdates.filter(Boolean);
-  const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
-  const netPNL = totalPNL + realizedTodayPNL;
-
-  const userBankBalance = await getUserBankBalance(userId);
-  const maxAllowedLoss = userBankBalance - totalInvested;
-
-  if (netPNL < -Math.abs(maxAllowedLoss)) {
-    console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
-    ws.send(JSON.stringify({
-      type: "auto-squareoff",
-      reason: "Loss limit breached",
-      netPNL,
-      maxAllowedLoss,
-    }));
-    return;
-  }
-
-  // Always send payload even if positions are empty
-  const payload = {
-    type: "bulk-position-update",
-    positions: filteredUpdates,
-    totalPNL: Number(totalPNL.toFixed(6)),
-    totalInvested: Number(totalInvested.toFixed(4)),
-    category,
-  };
-
-  ws.send(JSON.stringify(payload));
-}
 
 
 
@@ -192,69 +524,8 @@ function normalizeToBinanceSymbol(symbol) {
 }
 
 
-export async function handleSubscribe1(req, res) {
-  const { userId, category } = req.body;
-  const ws = req.app.get("positionConnections").get(userId);
 
-  if (!ws || ws.readyState !== 1) {
-    return res.status(400).send("User WebSocket not connected");
-  }
 
-  const catMap = userSubscriptions.get(userId) || new Map();
-  userSubscriptions.set(userId, catMap);
-
-  const dynamoCommand = new QueryCommand({
-    TableName: "incrypto-dev-positions",
-    IndexName: "UserIndex",
-    KeyConditionExpression: "userId = :uid",
-    ExpressionAttributeValues: {
-      ":uid": { S: userId },
-    },
-  });
-
-  let userPositions = [];
-  try {
-    const { Items } = await dynamoClient.send(dynamoCommand);
-    if (!Items || !Items.length) return res.status(400).send("No data found.");
-    userPositions = Items.map((item) => unmarshall(item)).filter((pos) => pos.status === 'OPEN');
-    userActivePositions.set(userId, userPositions);
-  } catch (err) {
-    return res.status(500).send("Failed to fetch positions");
-  }
-
-  const symbols = userPositions.map((pos) => pos.assetSymbol).filter(Boolean);
-  if (!symbols.length)
-    return res.status(400).send("No active asset symbols found");
-
-  // ✅ Register current category symbols
-  const symbolSet = catMap.get(category) || new Set();
-  // symbols.forEach((symbol) => symbolSet.add(symbol));
-  symbols.forEach((symbol) => symbolSet.add(normalizeToBinanceSymbol(symbol)));
-
-  catMap.set(category, symbolSet);
-
-  // ✅ ALSO register futures symbols under "futures" category
-  const futuresSet = catMap.get("futures") || new Set();
-  userPositions.forEach((pos) => {
-    if (isFuturesSymbol(pos.assetSymbol)) {
-      // console.log(pos.assetSymbol)
-      futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
-      // console.log(pos.assetSymbol)
-      // console.log(futuresSet)
-    }
-  });
-  catMap.set("futures", futuresSet);
-
-  // ✅ Final update
-  userSubscriptions.set(userId, catMap);
-  // console.log(catMap)
-
-  broadcastAllPositions(req.app.get("positionConnections"), userId, category);
-
-  res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
-}
-
-// === Trigger Manual PnL Update ===
 export async function triggerPNLUpdate(req, res) {
   const { userId, category } = req.body;
   if (!userId) return res.status(400).send("Missing userId");
@@ -301,21 +572,7 @@ export async function triggerPNLUpdate(req, res) {
 }
 
 
-export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
-  const normalizedSymbol = normalizeToBinanceSymbol(symbol);
 
-  for (const [userId, ws] of positionConnections) {
-    if (ws.readyState !== 1) continue;
-
-    const catMap = userSubscriptions.get(userId);
-    if (!catMap || !catMap.has(category)) continue;
-
-    const subscribedSymbols = catMap.get(category);
-    if (!subscribedSymbols.has(normalizedSymbol)) continue;
-
-    broadcastAllPositions(positionConnections, userId, category);
-  }
-}
 
 
 export function handleUnsubscribe2(req, res) {
