@@ -142,6 +142,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       takeProfit,
       stopLoss,
       orderType,
+      lot,
       openedAt
     } = pos;
 
@@ -188,6 +189,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       stopLoss,
       takeProfit,
       orderType,
+      lot,
       status: "OPEN",
     };
   }));
@@ -212,7 +214,8 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       contributionAmount,
       stopLoss,
       takeProfit,
-      orderType
+      orderType,
+      lot
     } = pos;
 
     const invested = entryPrice * quantity;
@@ -236,6 +239,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       stopLoss,
       takeProfit,
       orderType,
+      lot,
       status: "CLOSED",
     };
   });
@@ -271,192 +275,6 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
 
 
-// export async function handleSubscribe1(req, res) {
-//   const { userId, category } = req.body;
-//   const ws = req.app.get("positionConnections").get(userId);
-
-//   if (!ws || ws.readyState !== 1) {
-//     return res.status(400).send("User WebSocket not connected");
-//   }
-
-//   const catMap = userSubscriptions.get(userId) || new Map();
-//   userSubscriptions.set(userId, catMap);
-
-//   const dynamoCommand = new QueryCommand({
-//     TableName: "incrypto-dev-positions",
-//     IndexName: "UserIndex",
-//     KeyConditionExpression: "userId = :uid",
-//     ExpressionAttributeValues: {
-//       ":uid": { S: userId },
-//     },
-//   });
-
-//   let userPositions = [];
-//   try {
-//     const { Items } = await dynamoClient.send(dynamoCommand);
-//     if (!Items || !Items.length) return res.status(400).send("No data found.");
-//     userPositions = Items.map((item) => unmarshall(item)).filter((pos) => pos.status === 'OPEN');
-//     userActivePositions.set(userId, userPositions);
-//   } catch (err) {
-//     return res.status(500).send("Failed to fetch positions");
-//   }
-
-//   const symbols = userPositions.map((pos) => pos.assetSymbol).filter(Boolean);
-//   if (!symbols.length)
-//     return res.status(400).send("No active asset symbols found");
-
-//   // ✅ Register current category symbols
-//   const symbolSet = catMap.get(category) || new Set();
-//   // symbols.forEach((symbol) => symbolSet.add(symbol));
-//   symbols.forEach((symbol) => symbolSet.add(normalizeToBinanceSymbol(symbol)));
-
-//   catMap.set(category, symbolSet);
-
-//   // ✅ ALSO register futures symbols under "futures" category
-//   const futuresSet = catMap.get("futures") || new Set();
-//   userPositions.forEach((pos) => {
-//     if (isFuturesSymbol(pos.assetSymbol)) {
-//       // console.log(pos.assetSymbol)
-//       futuresSet.add(normalizeToBinanceSymbol(pos.assetSymbol));
-//       // console.log(pos.assetSymbol)
-//       // console.log(futuresSet)
-//     }
-//   });
-//   catMap.set("futures", futuresSet);
-
-//   // ✅ Final update
-//   userSubscriptions.set(userId, catMap);
-//   // console.log(catMap)
-
-//   broadcastAllPositions(req.app.get("positionConnections"), userId, category);
-
-//   res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
-// }
-
-
-
-// export async function broadcastAllPositions(positionConnections, userId, category) {
-//   const ws = positionConnections.get(userId);
-//   if (!ws || ws.readyState !== 1) return;
-
-//   const userPositions = userActivePositions.get(userId) || [];
-//   let totalPNL = 0;
-//   let totalInvested = 0;
-
-//   const positionUpdates = await Promise.all(userPositions.map(async (userPos) => {
-//     const {
-//       assetSymbol: symbol,
-//       orderID,
-//       quantity,
-//       leverage,
-//       positionType,
-//       entryPrice,
-//       positionId,
-//       contributionAmount,
-//       takeProfit,
-//       stopLoss,
-//       orderType,
-//       openedAt
-//     } = userPos;
-
-//     let data = {};
-//     const normalizedSymbol = normalizeToBinanceSymbol(symbol);
-
-//     if (isFuturesSymbol(symbol)) {
-//       data = getDeltaSymbolData(normalizedSymbol);
-//     } else if (isOptionSymbol(symbol)) {
-//       const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
-//       data = getSymbolDataByDate(currency, date, symbol);
-//     }
-
-//     let markPrice = Number(data?.mark_price);
-//     if (!markPrice || isNaN(markPrice)) {
-//       markPrice = Number(data?.calculated?.mark_price?.value);
-//     }
-//     if (!markPrice || isNaN(markPrice)) return null;
-
-//     const invested = entryPrice * quantity;
-//     const isShort = (positionType === "SHORT" || positionType === "SELL");
-//     const pnl = isShort
-//       ? (entryPrice - markPrice) * quantity
-//       : (markPrice - entryPrice) * quantity;
-
-//     const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
-//     totalPNL += pnl;
-//     totalInvested += invested;
-
-//     // const updateCmd = new UpdateItemCommand({
-//     //   TableName: "incrypto-dev-positions",
-//     //   Key: marshall({ positionId }),
-//     //   UpdateExpression: `SET contributionAmount = :contributionAmount,
-//     //                      takeProfit = :takeProfit,
-//     //                      stopLoss = :stopLoss,
-//     //                      updatedAt = :updatedAt`,
-//     //   ExpressionAttributeValues: marshall({
-//     //     ":contributionAmount": contributionAmount ?? 0,
-//     //     ":takeProfit": takeProfit ?? null,
-//     //     ":stopLoss": stopLoss ?? null,
-//     //     ":updatedAt": new Date().toISOString(),
-//     //   }),
-//     // });
-
-//     // try {
-//     //   await dynamoClient.send(updateCmd);
-//     // } catch (err) {
-//     //   console.error(`❌ Failed to update fields for position ${positionId}:`, err);
-//     // }
-
-//     return {
-//       symbol,
-//       orderID,
-//       positionId,
-//       markPrice,
-//       entryPrice,
-//       quantity,
-//       leverage,
-//       positionType,
-//       pnl: Number(pnl.toFixed(6)),
-//       pnlPercentage: Number(pnlPercentage.toFixed(2)),
-//       openedAt,
-//       contributionAmount,
-//       stopLoss,
-//       takeProfit,
-//       orderType
-//     };
-//   }));
-
-//   const filteredUpdates = positionUpdates.filter(Boolean);
-//   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
-//   const netPNL = totalPNL + realizedTodayPNL;
-
-//   const userBankBalance = await getUserBankBalance(userId);
-//   const maxAllowedLoss = userBankBalance - totalInvested;
-
-//   if (netPNL < -Math.abs(maxAllowedLoss)) {
-//     console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
-//     ws.send(JSON.stringify({
-//       type: "auto-squareoff",
-//       reason: "Loss limit breached",
-//       netPNL,
-//       maxAllowedLoss,
-//     }));
-//     return;
-//   }
-
-//   // Always send payload even if positions are empty
-//   const payload = {
-//     type: "bulk-position-update",
-//     positions: filteredUpdates,
-//     totalPNL: Number(totalPNL.toFixed(6)),
-//     totalInvested: Number(totalInvested.toFixed(4)),
-//     category,
-//   };
-
-//   ws.send(JSON.stringify(payload));
-// }
-
-
-
 export function broadcastPositionData(positionConnections, symbol, symbolData, category) {
   const normalizedSymbol = normalizeToBinanceSymbol(symbol);
 
@@ -472,14 +290,6 @@ export function broadcastPositionData(positionConnections, symbol, symbolData, c
     broadcastAllPositions(positionConnections, userId, category);
   }
 }
-
-
-
-
-
-
-
-
 
 
 
@@ -513,9 +323,6 @@ async function getUserBankBalance(userId) {
     return 0;
   }
 }
-
-
-
 
 
 
