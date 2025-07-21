@@ -251,16 +251,16 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   const userBankBalance = await getUserBankBalance(userId);
   const maxAllowedLoss = userBankBalance - totalOpenInvested;
 
-  if (netPNL < -Math.abs(maxAllowedLoss)) {
-    console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
-    ws.send(JSON.stringify({
-      type: "auto-squareoff",
-      reason: "Loss limit breached",
-      netPNL,
-      maxAllowedLoss,
-    }));
-    return;
-  }
+  // if (netPNL < -Math.abs(maxAllowedLoss)) {
+  //   console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
+  //   ws.send(JSON.stringify({
+  //     type: "auto-squareoff",
+  //     reason: "Loss limit breached",
+  //     netPNL,
+  //     maxAllowedLoss,
+  //   }));
+  //   return;
+  // }
 
   const payload = {
     type: "bulk-position-update",
