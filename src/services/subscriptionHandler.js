@@ -99,7 +99,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
   const now = DateTime.now().setZone("Asia/Kolkata");
   const todayStart = now.set({ hour: 5, minute: 30, second: 0, millisecond: 0 });
-  const todayEnd = todayStart.plus({ hours: 12 });
+  const todayEnd = todayStart.plus({ hours: 24 });
 
   const dynamoCommand = new QueryCommand({
     TableName: "incrypto-dev-positions",
@@ -249,23 +249,13 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
   const netPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
   const userBankBalance = await getUserBankBalance(userId);
-  const maxAllowedLoss = userBankBalance - totalOpenInvested;
+  // const maxAllowedLoss = userBankBalance - totalOpenInvested;
 
-  // if (netPNL < -Math.abs(maxAllowedLoss)) {
-  //   console.log(`❌ Max loss breached for ${userId}. Auto-squareoff.`);
-  //   ws.send(JSON.stringify({
-  //     type: "auto-squareoff",
-  //     reason: "Loss limit breached",
-  //     netPNL,
-  //     maxAllowedLoss,
-  //   }));
-  //   return;
-  // }
 
   const payload = {
     type: "bulk-position-update",
     positions: allPositions,
-    totalPNL: Number((totalOpenPNL + totalClosedPNL).toFixed(6)),
+    totalPNL: Number((totalOpenPNL + totalClosedPNL+ realizedTodayPNL).toFixed(6)),
     totalInvested: Number((totalOpenInvested + totalClosedInvested).toFixed(4)),
     category,
   };
