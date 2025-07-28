@@ -68,7 +68,7 @@ router.post('/symbol-mark-prices', async (req, res) => {
         markPrice = parseFloat(rawData.mark_price || rawData?.quotes?.mark_price || 0);
       } else if (isOptionSymbol(symbol)) {
         markPrice = parseFloat(
-          rawData.calculated?.best_ask_price?.value ??
+          rawData.calculated?.mark_price?.value ??
           rawData.originalData?.mark_price ??
           rawData.originalData?.last_price ??
           0
