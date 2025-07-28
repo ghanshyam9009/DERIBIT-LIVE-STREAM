@@ -17,6 +17,8 @@ import { unmarshall, marshall } from "@aws-sdk/util-dynamodb";
 export const userSubscriptions = new Map();
 const userActivePositions = new Map();
 const userRealizedTodayPnL = new Map();
+const closedOnlyBroadcasted = new Map(); // userId => boolean
+
 
 const dynamoClient = new DynamoDBClient({ region: "ap-southeast-1" });
 
@@ -66,8 +68,8 @@ export async function handleSubscribe1(req, res) {
   const openPositions = allPositions.filter((pos) => pos.status === "OPEN");
 
   const symbols = openPositions.map((pos) => pos.assetSymbol).filter(Boolean);
-  if (!symbols.length)
-    return res.status(400).send("No active asset symbols found");
+  // if (!symbols.length)
+  //   return res.status(400).send("No active asset symbols found");
 
   // ✅ Register current category symbols
   const symbolSet = catMap.get(category) || new Set();
@@ -91,7 +93,6 @@ export async function handleSubscribe1(req, res) {
 
   res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
 }
-
 
 export async function broadcastAllPositions(positionConnections, userId, category) {
   const ws = positionConnections.get(userId);
@@ -119,15 +120,9 @@ export async function broadcastAllPositions(positionConnections, userId, categor
     return;
   }
 
-  const openPositions = allUserPositions.filter((pos) => pos.status === "OPEN");
-  const closedPositions = allUserPositions.filter((pos) => {
-    if (pos.status !== "CLOSED" || !pos.closedAt) return false;
-    const closedTime = DateTime.fromISO(pos.closedAt, { zone: "Asia/Kolkata" });
-    return closedTime >= todayStart && closedTime <= todayEnd;
-  });
-
   let totalOpenPNL = 0;
   let totalOpenInvested = 0;
+  let openPositions = allUserPositions.filter((pos) => pos.status === "OPEN");
 
   const openPayload = await Promise.all(openPositions.map(async (pos) => {
     const {
@@ -196,6 +191,13 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
   const filteredOpen = openPayload.filter(Boolean);
 
+  // ➕ Realized Closed Positions
+  const closedPositions = allUserPositions.filter((pos) => {
+    if (pos.status !== "CLOSED" || !pos.closedAt) return false;
+    const closedTime = DateTime.fromISO(pos.closedAt, { zone: "Asia/Kolkata" });
+    return closedTime >= todayStart && closedTime <= todayEnd;
+  });
+
   let totalClosedPNL = 0;
   let totalClosedInvested = 0;
 
@@ -211,11 +213,12 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       pnl,
       exitPrice,
       closedAt,
-      contributionAmount,
+      initialMargin,
       stopLoss,
       takeProfit,
       orderType,
-      lot
+      lot,
+      initialQuantity
     } = pos;
 
     const invested = entryPrice * quantity;
@@ -235,33 +238,103 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       pnlPercentage: Number(((pnl / invested) * 100).toFixed(2)),
       invested: Number(invested.toFixed(4)),
       closedAt,
-      contributionAmount,
+      initialMargin,
       stopLoss,
       takeProfit,
       orderType,
       lot,
       status: "CLOSED",
+      initialQuantity,
     };
   });
 
-  const allPositions = [...filteredOpen, ...closedPayload];
-
   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
-  const netPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
-  const userBankBalance = await getUserBankBalance(userId);
-  // const maxAllowedLoss = userBankBalance - totalOpenInvested;
+  const totalPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
 
+  // 🚨 LIQUIDATION CHECK
+const liquidationprice = await getUserLiquidationPrice(userId); // Get user's available balance
+
+if (totalPNL < -liquidationprice) {
+  console.log(`⚠️ Liquidating all open positions for user: ${userId} due to total loss ₹${totalPNL.toFixed(2)} exceeding balance ₹${userBankBalance}`);
+
+  const nowISO = DateTime.now().setZone("Asia/Kolkata").toISO();
+
+  const liquidationTasks = filteredOpen.map((pos) => {
+    const {
+      positionId,
+      pnl,
+    } = pos;
+  
+    const updateCmd = {
+      TableName: "incrypto-dev-positions",
+      Key: {
+        positionId: { S: positionId },
+      },
+      UpdateExpression: `
+        SET 
+          #status = :closed,
+          #closedAt = :closedAt,
+          #reason = :reason,
+          #quantity = :zero,
+          #contributionAmount = :zero,
+          #pnl = :pnl
+      `,
+      ExpressionAttributeNames: {
+        "#status": "status",
+        "#closedAt": "closedAt",
+        "#reason": "liquidationReason",
+        "#quantity": "quantity",
+        "#contributionAmount": "contributionAmount",
+        "#pnl": "pnl"
+      },
+      ExpressionAttributeValues: {
+        ":closed": { S: "CLOSED" },
+        ":closedAt": { S: nowISO },
+        ":reason": { S: "auto-liquidation due to exceeding balance loss" },
+        ":zero": { N: "0" },
+        ":pnl": { N: pnl.toFixed(6) },  // ✅ Live PnL at liquidation time
+      },
+    };
+  
+    return dynamoClient.send(new UpdateItemCommand(updateCmd));
+  });
+  
+
+  try {
+    await Promise.all(liquidationTasks);
+    console.log("✅ Liquidation complete.");
+  } catch (err) {
+    console.error("❌ Liquidation update failed:", err);
+  }
+
+  return; // stop broadcasting since liquidation just happened
+}
+
+
+  // ⚠️ Only broadcast once if only closed positions exist
+  if (filteredOpen.length === 0 && closedPayload.length > 0) {
+    const alreadySent = closedOnlyBroadcasted.get(userId);
+    if (alreadySent) return;
+    closedOnlyBroadcasted.set(userId, true);
+  } else {
+    closedOnlyBroadcasted.set(userId, false);
+  }
+
+  const allPositions = [...filteredOpen, ...closedPayload];
+  const userBankBalance = await getUserBankBalance(userId);
 
   const payload = {
     type: "bulk-position-update",
     positions: allPositions,
-    totalPNL: Number((totalOpenPNL + totalClosedPNL+ realizedTodayPNL).toFixed(6)),
+    totalPNL: Number(totalPNL.toFixed(6)),
     totalInvested: Number((totalOpenInvested + totalClosedInvested).toFixed(4)),
     category,
   };
 
   ws.send(JSON.stringify(payload));
 }
+
+
 
 
 
@@ -314,7 +387,49 @@ async function getUserBankBalance(userId) {
   }
 }
 
+async function getUserLiquidationPrice(userId) {
+  try {
+    // Step 1: Fetch fund balance
+    const fundCmd = new QueryCommand({
+      TableName: "incrypto-dev-funds",
+      KeyConditionExpression: "userId = :uid",
+      ExpressionAttributeValues: {
+        ":uid": { S: userId },
+      },
+    });
 
+    const fundRes = await dynamoClient.send(fundCmd);
+    const fund = fundRes.Items?.length ? unmarshall(fundRes.Items[0]) : null;
+    const availableBalance = fund?.availableBalance || 0;
+
+    // Step 2: Fetch all open positions
+    const positionCmd = new QueryCommand({
+      TableName: "incrypto-dev-positions",
+      IndexName: "UserIndex",
+      KeyConditionExpression: "userId = :uid",
+      ExpressionAttributeValues: {
+        ":uid": { S: userId },
+      },
+    });
+
+    const positionRes = await dynamoClient.send(positionCmd);
+    const allPositions = (positionRes.Items || []).map(unmarshall);
+    const openPositions = allPositions.filter((pos) => pos.status === "OPEN");
+
+    // Step 3: Sum contributionAmount from open positions
+    const totalContribution = openPositions.reduce((acc, pos) => {
+      const val = Number(pos.contributionAmount || 0);
+      return acc + (isNaN(val) ? 0 : val);
+    }, 0);
+
+    // Step 4: Return liquidation price
+    return availableBalance + totalContribution;
+
+  } catch (err) {
+    console.error("❌ Error computing liquidation price:", err);
+    return 0;
+  }
+}
 
 function normalizeToBinanceSymbol(symbol) {
   if (!symbol || symbol.includes('-')) return symbol;
