@@ -252,63 +252,63 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   const totalPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
 
   // 🚨 LIQUIDATION CHECK
-const liquidationprice = await getUserLiquidationPrice(userId); // Get user's available balance
+// const liquidationprice = await getUserLiquidationPrice(userId); // Get user's available balance
 
-if (totalPNL < -liquidationprice) {
-  console.log(`⚠️ Liquidating all open positions for user: ${userId} due to total loss ₹${totalPNL.toFixed(2)} exceeding balance ₹${userBankBalance}`);
+// if (totalPNL < -liquidationprice) {
+//   console.log(`⚠️ Liquidating all open positions for user: ${userId} due to total loss ₹${totalPNL.toFixed(2)} exceeding balance ₹${userBankBalance}`);
 
-  const nowISO = DateTime.now().setZone("Asia/Kolkata").toISO();
+//   const nowISO = DateTime.now().setZone("Asia/Kolkata").toISO();
 
-  const liquidationTasks = filteredOpen.map((pos) => {
-    const {
-      positionId,
-      pnl,
-    } = pos;
+//   const liquidationTasks = filteredOpen.map((pos) => {
+//     const {
+//       positionId,
+//       pnl,
+//     } = pos;
   
-    const updateCmd = {
-      TableName: "incrypto-dev-positions",
-      Key: {
-        positionId: { S: positionId },
-      },
-      UpdateExpression: `
-        SET 
-          #status = :closed,
-          #closedAt = :closedAt,
-          #reason = :reason,
-          #quantity = :zero,
-          #contributionAmount = :zero,
-          #pnl = :pnl
-      `,
-      ExpressionAttributeNames: {
-        "#status": "status",
-        "#closedAt": "closedAt",
-        "#reason": "liquidationReason",
-        "#quantity": "quantity",
-        "#contributionAmount": "contributionAmount",
-        "#pnl": "pnl"
-      },
-      ExpressionAttributeValues: {
-        ":closed": { S: "CLOSED" },
-        ":closedAt": { S: nowISO },
-        ":reason": { S: "auto-liquidation due to exceeding balance loss" },
-        ":zero": { N: "0" },
-        ":pnl": { N: pnl.toFixed(6) },  // ✅ Live PnL at liquidation time
-      },
-    };
+//     const updateCmd = {
+//       TableName: "incrypto-dev-positions",
+//       Key: {
+//         positionId: { S: positionId },
+//       },
+//       UpdateExpression: `
+//         SET 
+//           #status = :closed,
+//           #closedAt = :closedAt,
+//           #reason = :reason,
+//           #quantity = :zero,
+//           #contributionAmount = :zero,
+//           #pnl = :pnl
+//       `,
+//       ExpressionAttributeNames: {
+//         "#status": "status",
+//         "#closedAt": "closedAt",
+//         "#reason": "liquidationReason",
+//         "#quantity": "quantity",
+//         "#contributionAmount": "contributionAmount",
+//         "#pnl": "pnl"
+//       },
+//       ExpressionAttributeValues: {
+//         ":closed": { S: "CLOSED" },
+//         ":closedAt": { S: nowISO },
+//         ":reason": { S: "auto-liquidation due to exceeding balance loss" },
+//         ":zero": { N: "0" },
+//         ":pnl": { N: pnl.toFixed(6) },  // ✅ Live PnL at liquidation time
+//       },
+//     };
   
-    return dynamoClient.send(new UpdateItemCommand(updateCmd));
-  });
+//     return dynamoClient.send(new UpdateItemCommand(updateCmd));
+//   });
   
 
-  try {
-    await Promise.all(liquidationTasks);
-    console.log("✅ Liquidation complete.");
-  } catch (err) {
-    console.error("❌ Liquidation update failed:", err);
-  }
+//   try {
+//     await Promise.all(liquidationTasks);
+//     console.log("✅ Liquidation complete.");
+//   } catch (err) {
+//     console.error("❌ Liquidation update failed:", err);
+//   }
 
-  return; // stop broadcasting since liquidation just happened
-}
+//   return; // stop broadcasting since liquidation just happened
+// }
 
 
   // ⚠️ Only broadcast once if only closed positions exist
@@ -321,7 +321,7 @@ if (totalPNL < -liquidationprice) {
   }
 
   const allPositions = [...filteredOpen, ...closedPayload];
-  const userBankBalance = await getUserBankBalance(userId);
+  // const userBankBalance = await getUserBankBalance(userId);
 
   const payload = {
     type: "bulk-position-update",
