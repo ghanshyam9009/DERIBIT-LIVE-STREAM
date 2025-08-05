@@ -218,10 +218,11 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       takeProfit,
       orderType,
       lot,
-      initialQuantity
+      initialQuantity,
+      positionClosedType
     } = pos;
 
-    const invested = entryPrice * quantity;
+    const invested = entryPrice * initialQuantity;
     totalClosedInvested += invested;
     totalClosedPNL += Number(pnl || 0);
 
@@ -245,6 +246,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       lot,
       status: "CLOSED",
       initialQuantity,
+      positionClosedType
     };
   });
 
