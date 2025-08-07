@@ -315,13 +315,13 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
 
   // ⚠️ Only broadcast once if only closed positions exist
-  if (filteredOpen.length === 0 && closedPayload.length > 0) {
-    const alreadySent = closedOnlyBroadcasted.get(userId);
-    if (alreadySent) return;
-    closedOnlyBroadcasted.set(userId, true);
-  } else {
-    closedOnlyBroadcasted.set(userId, false);
-  }
+  // if (filteredOpen.length === 0 && closedPayload.length > 0) {
+  //   const alreadySent = closedOnlyBroadcasted.get(userId);
+  //   if (alreadySent) return;
+  //   closedOnlyBroadcasted.set(userId, true);
+  // } else {
+  //   closedOnlyBroadcasted.set(userId, false);
+  // }
 
   const allPositions = [...filteredOpen, ...closedPayload];
   // const userBankBalance = await getUserBankBalance(userId);
