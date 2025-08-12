@@ -14,13 +14,20 @@ import {
 } from "@aws-sdk/client-dynamodb";
 import { unmarshall, marshall } from "@aws-sdk/util-dynamodb";
 
+
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+
+
 export const userSubscriptions = new Map();
 const userActivePositions = new Map();
 const userRealizedTodayPnL = new Map();
 const closedOnlyBroadcasted = new Map(); // userId => boolean
 
 
+
+
 const dynamoClient = new DynamoDBClient({ region: "ap-southeast-1" });
+const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 
 export async function checkDynamoConnection() {
@@ -253,75 +260,152 @@ export async function broadcastAllPositions(positionConnections, userId, categor
 
   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
   const totalPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
+  const liquidationThreshold = await getUserLiquidationPrice(userId) || 0 // Default threshold if not found
+  // console.log(liquidationThreshold)
 
-  // 🚨 LIQUIDATION CHECK
-// const liquidationprice = await getUserLiquidationPrice(userId); // Get user's available balance
+// 🚨 LIQUIDATION CHECK
+// 🚨 LIQUIDATION CHECK
+if (totalOpenPNL <= -liquidationThreshold && filteredOpen.length > 0) {
+  console.log(`⚠️ Liquidating all open positions for user: ${userId} due to total loss ₹${totalPNL.toFixed(2)} exceeding limit ₹100`);
 
-// if (totalPNL < -liquidationprice) {
-//   console.log(`⚠️ Liquidating all open positions for user: ${userId} due to total loss ₹${totalPNL.toFixed(2)} exceeding balance ₹${userBankBalance}`);
+  const nowISO = DateTime.now().setZone("Asia/Kolkata").toISO();
 
-//   const nowISO = DateTime.now().setZone("Asia/Kolkata").toISO();
+  const liquidationTasks = filteredOpen.map(async (pos) => {
+    const {
+      positionId,
+      pnl,
+      markPrice,
+      positionType,
+      contributionAmount,
+      symbol,
+      leverage,
+      lot,
+      quantity,
+      stopLoss,
+      takeProfit,
+      orderType,
+      orderID
+    } = pos;
 
-//   const liquidationTasks = filteredOpen.map((pos) => {
-//     const {
-//       positionId,
-//       pnl,
-//     } = pos;
-  
-//     const updateCmd = {
-//       TableName: "incrypto-dev-positions",
-//       Key: {
-//         positionId: { S: positionId },
-//       },
-//       UpdateExpression: `
-//         SET 
-//           #status = :closed,
-//           #closedAt = :closedAt,
-//           #reason = :reason,
-//           #quantity = :zero,
-//           #contributionAmount = :zero,
-//           #pnl = :pnl
-//       `,
-//       ExpressionAttributeNames: {
-//         "#status": "status",
-//         "#closedAt": "closedAt",
-//         "#reason": "liquidationReason",
-//         "#quantity": "quantity",
-//         "#contributionAmount": "contributionAmount",
-//         "#pnl": "pnl"
-//       },
-//       ExpressionAttributeValues: {
-//         ":closed": { S: "CLOSED" },
-//         ":closedAt": { S: nowISO },
-//         ":reason": { S: "auto-liquidation due to exceeding balance loss" },
-//         ":zero": { N: "0" },
-//         ":pnl": { N: pnl.toFixed(6) },  // ✅ Live PnL at liquidation time
-//       },
-//     };
-  
-//     return dynamoClient.send(new UpdateItemCommand(updateCmd));
-//   });
-  
+    // 1️⃣ Close the position in DB
+    const updateCmd = {
+      TableName: "incrypto-dev-positions",
+      Key: {
+        positionId: { S: positionId },
+      },
+      UpdateExpression: `
+        SET 
+          #status = :closed,
+          #closedAt = :closedAt,
+          #positionClosedType = :positionClosedType,
+          #quantity = :zero,
+          #contributionAmount = :zero,
+          #pnl = :pnl,
+          #exitPrice = :exitPrice
+      `,
+      ExpressionAttributeNames: {
+        "#status": "status",
+        "#closedAt": "closedAt",
+        "#positionClosedType": "positionClosedType",
+        "#quantity": "quantity",
+        "#contributionAmount": "contributionAmount",
+        "#pnl": "pnl",
+        "#exitPrice": "exitPrice"
+      },
+      ExpressionAttributeValues: {
+        ":closed": { S: "CLOSED" },
+        ":closedAt": { S: nowISO },
+        ":positionClosedType": { S: "LIQUIDATION_HIT" },
+        ":zero": { N: "0" },
+        ":pnl": { N: pnl.toFixed(6) },
+        ":exitPrice": { N: markPrice.toFixed(6) }
+      },
+    };
 
-//   try {
-//     await Promise.all(liquidationTasks);
-//     console.log("✅ Liquidation complete.");
-//   } catch (err) {
-//     console.error("❌ Liquidation update failed:", err);
-//   }
+    await dynamoClient.send(new UpdateItemCommand(updateCmd));
 
-//   return; // stop broadcasting since liquidation just happened
-// }
+    // 2️⃣ Create a reverse order entry
+    const newOrderId = `INOR-${Date.now()}`;
+    const safeExitPrice = markPrice;
+    const safeQuantity = quantity;
+    const BROKERAGE_FEE = 0; // set your fee
+    const feeInINR = 0;      // convert fee if needed
+    const currency = symbol; // or extract from symbol if required
+    const orderSource = "SYSTEM";
+    const strategy = "LIQUIDATION";
+    const posId = positionId;
+
+    const orderPayload = {
+      orderId: newOrderId,
+      userId,
+      createdAt: nowISO,
+      updatedAt: nowISO,
+      fee: BROKERAGE_FEE,
+      feeInINR,
+      leverage,
+      lot,
+      marginAmount: contributionAmount,
+      currency,
+      status: "FILLED",
+      orderType: "MARKET",
+      operation: positionType === "LONG" ? "SELL" : "BUY",
+      orderMessage: `Auto order due to liquidation @${safeExitPrice}; margin=${contributionAmount.toFixed(8)}, fee=${BROKERAGE_FEE.toFixed(8)}`,
+      stockSymbol: symbol,
+      price: safeExitPrice,
+      size: safeQuantity,
+      totalValue: safeExitPrice * safeQuantity,
+      stopLoss,
+      takeProfit,
+      positionID: posId,
+      source: currency,
+      metaData: {
+        source: orderSource,
+        strategy,
+      }
+    };
+
+    await docClient.send(new PutCommand({
+      TableName: "incrypto-dev-orders",
+      Item: orderPayload,
+    }));
+
+    console.log(`📦 Created liquidation order ${newOrderId} for position ${positionId}`);
+  });
+
+  try {
+    await Promise.all(liquidationTasks);
+    console.log("✅ Liquidation + reverse orders complete.");
+
+    // 3️⃣ Update user's funds to 0
+    const updateFundsCmd = {
+      TableName: "incrypto-dev-funds",
+      Key: {
+        userId: { S: userId },
+      },
+      UpdateExpression: "SET #availableBalance = :zero",
+      ExpressionAttributeNames: {
+        "#availableBalance": "availableBalance",
+      },
+      ExpressionAttributeValues: {
+        ":zero": { N: "0" },
+      },
+    };
+
+    await dynamoClient.send(new UpdateItemCommand(updateFundsCmd));
+    console.log("💰 User funds set to ₹0 due to liquidation.");
+
+  } catch (err) {
+    console.error("❌ Liquidation update failed:", err);
+  }
+
+  return; // stop broadcasting since liquidation just happened
+}
 
 
-  // ⚠️ Only broadcast once if only closed positions exist
-  // if (filteredOpen.length === 0 && closedPayload.length > 0) {
-  //   const alreadySent = closedOnlyBroadcasted.get(userId);
-  //   if (alreadySent) return;
-  //   closedOnlyBroadcasted.set(userId, true);
-  // } else {
-  //   closedOnlyBroadcasted.set(userId, false);
-  // }
+
+
+
+////////////////////////////////////////////////////////////////////////
 
   const allPositions = [...filteredOpen, ...closedPayload];
   // const userBankBalance = await getUserBankBalance(userId);
@@ -329,6 +413,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   const payload = {
     type: "bulk-position-update",
     positions: allPositions,
+    livepnl :totalOpenPNL,
     totalPNL: Number(totalPNL.toFixed(6)),
     totalInvested: Number((totalOpenInvested + totalClosedInvested).toFixed(4)),
     category,
@@ -405,28 +490,7 @@ async function getUserLiquidationPrice(userId) {
     const fund = fundRes.Items?.length ? unmarshall(fundRes.Items[0]) : null;
     const availableBalance = fund?.availableBalance || 0;
 
-    // Step 2: Fetch all open positions
-    const positionCmd = new QueryCommand({
-      TableName: "incrypto-dev-positions",
-      IndexName: "UserIndex",
-      KeyConditionExpression: "userId = :uid",
-      ExpressionAttributeValues: {
-        ":uid": { S: userId },
-      },
-    });
-
-    const positionRes = await dynamoClient.send(positionCmd);
-    const allPositions = (positionRes.Items || []).map(unmarshall);
-    const openPositions = allPositions.filter((pos) => pos.status === "OPEN");
-
-    // Step 3: Sum contributionAmount from open positions
-    const totalContribution = openPositions.reduce((acc, pos) => {
-      const val = Number(pos.contributionAmount || 0);
-      return acc + (isNaN(val) ? 0 : val);
-    }, 0);
-
-    // Step 4: Return liquidation price
-    return availableBalance + totalContribution;
+    return availableBalance ;
 
   } catch (err) {
     console.error("❌ Error computing liquidation price:", err);
