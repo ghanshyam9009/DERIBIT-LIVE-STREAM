@@ -114,8 +114,8 @@ import {
   getFullDeltaMap as getDeltaSymbolDataMap
 } from './deltaSymbolStore.js';
 
-// const WEBSOCKET_URL = "wss://fstream.binance.com/stream"; // Binance USDT-M Futures
-const WEBSOCKET_URL = "wss://stream.binance.com:9443/stream"; // Spot
+const WEBSOCKET_URL = "wss://fstream.binance.com/stream"; // Binance USDT-M Futures
+// const WEBSOCKET_URL = "wss://stream.binance.com:9443/stream"; // Spot
 
 const RECONNECT_INTERVAL = 5000;
 
