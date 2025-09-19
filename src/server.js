@@ -154,10 +154,16 @@ server.on('upgrade', (req, socket, head) => {
 
       // ✅ PING → PONG Handler
       ws.on('message', (msg) => {
-        if (msg.toString() === 'ping') {
-          ws.send('pong');
+        try {
+          const data = JSON.parse(msg.toString());
+          if (data.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong' })); // consistent JSON response
+          }
+        } catch (err) {
+          console.error('Invalid message received:', err);
         }
       });
+      
 
       ws.on('close', () => {
         userConnections.delete(userId);
