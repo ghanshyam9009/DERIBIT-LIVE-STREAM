@@ -101,9 +101,19 @@ export async function handleSubscribe1(req, res) {
   res.send(`Subscribed to ${symbols.length} symbols for user ${userId}`);
 }
 
+
+const sentClosedPositions = new Map();
+
 export async function broadcastAllPositions(positionConnections, userId, category) {
   const ws = positionConnections.get(userId);
   if (!ws || ws.readyState !== 1) return;
+
+
+   // Ensure user set exists
+   if (!sentClosedPositions.has(userId)) {
+    sentClosedPositions.set(userId, new Set());
+  }
+  const sentSet = sentClosedPositions.get(userId);
 
   const now = DateTime.now().setZone("Asia/Kolkata");
   const todayStart = now.set({ hour: 5, minute: 30, second: 0, millisecond: 0 });
@@ -208,7 +218,7 @@ export async function broadcastAllPositions(positionConnections, userId, categor
   let totalClosedPNL = 0;
   let totalClosedInvested = 0;
 
-  const closedPayload = closedPositions.map((pos) => {
+  const newclosedPayload = closedPositions.map((pos) => {
     const {
       assetSymbol: symbol,
       orderID,
@@ -257,6 +267,8 @@ export async function broadcastAllPositions(positionConnections, userId, categor
       positionClosedType
     };
   });
+
+  newclosedPayload.forEach((p) => sentSet.add(p.positionId));
 
   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
   const totalPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
@@ -407,7 +419,7 @@ if (totalOpenPNL <= -liquidationThreshold && filteredOpen.length > 0) {
 
 ////////////////////////////////////////////////////////////////////////
 
-  const allPositions = [...filteredOpen, ...closedPayload];
+  const allPositions = [...filteredOpen, ...newclosedPayload];
   // const userBankBalance = await getUserBankBalance(userId);
 
   const payload = {
