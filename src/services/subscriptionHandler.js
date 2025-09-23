@@ -176,7 +176,7 @@ export async function broadcastAllPositions(
       if (!markPrice || isNaN(markPrice)) return null;
 
       const invested = entryPrice * quantity;
-      const isShort = positionType === "SHORT" || positionType === "SELL";
+      const isShort = positionType === "SHORT" || positionType === "SHORT_LIMIT";
       const pnl = isShort
         ? (entryPrice - markPrice) * quantity
         : (markPrice - entryPrice) * quantity;
@@ -378,7 +378,8 @@ export async function broadcastAllPositions(
         currency,
         status: "FILLED",
         orderType: "MARKET",
-        operation: positionType === "LONG" ? "SELL" : "BUY",
+        // operation: positionType === "LONG" ? "SELL" : "BUY",
+        operation: (positionType === "LONG" || positionType === "LONG_LIMIT") ? "SELL" : "BUY",
         orderMessage: `Auto order due to liquidation @${safeExitPrice}; margin=${contributionAmount.toFixed(
           8
         )}, fee=${BROKERAGE_FEE.toFixed(8)}`,
