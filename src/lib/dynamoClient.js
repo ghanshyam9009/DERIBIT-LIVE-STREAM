@@ -44,7 +44,7 @@ export const dynamoClient = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
-const TABLE_NAME = process.env.DYNAMODB_TABLE || "incrypto-dev-sns";
+const TABLE_NAME = "incrypto-dev-sns";
 
 // Save message
 export async function saveMessage(userId, messageId, payload, category, delivered = false) {
