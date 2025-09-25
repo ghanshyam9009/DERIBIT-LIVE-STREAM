@@ -22,6 +22,12 @@ import {
   resendPendingMessages,
 } from "./services/queueWs.js";
 
+
+import {
+  createFundWebSocket,
+  fundConnections
+} from "./services/fundWs.js";
+
 dotenv.config();
 
 const app = express();
@@ -40,6 +46,7 @@ const orderTrackingWss = new WebSocketServer({ noServer: true });// order tracki
 
 // ✅ NEW: completely independent queue socket
 const queueWss = createQueueWebSocket();
+const fundWss = createFundWebSocket();
 
 const userConnections = new Map();
 const positionConnections = new Map();
@@ -48,6 +55,8 @@ const orderTrackingConnections = new Set();
 app.set("userConnections", userConnections);
 app.set("positionConnections", positionConnections);
 app.set("orderTrackingConnections", orderTrackingConnections);
+app.set("fundConnections", fundConnections);
+
 
 // ──────────────────────────
 // Symbol + Deribit startup
@@ -112,7 +121,32 @@ server.on("upgrade", async (req, socket, head) => {
     });
     return;
   }
+   
+  if (category === "fund") {
+    if (!userId) return socket.destroy();
+    fundWss.handleUpgrade(req, socket, head, (ws) => {
+      fundConnections.set(userId, ws);
+      console.log(`🔗 [Fund] User ${userId} connected`);
 
+      // optional ping/pong keep-alive
+      ws.on("message", (msg) => {
+        try {
+          const data = JSON.parse(msg.toString());
+          if (data.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
+          }
+        } catch (err) {
+          console.error("Invalid fund message:", err);
+        }
+      });
+
+      ws.on("close", () => {
+        fundConnections.delete(userId);
+        console.log(`❌ [Fund] User ${userId} disconnected`);
+      });
+    });
+    return; // ⬅️ prevent falling through
+  }
   // ✅ Existing sockets
   if (category === "position") {
     if (!userId) return socket.destroy();
@@ -170,6 +204,10 @@ server.on("upgrade", async (req, socket, head) => {
     });
   }
 });
+
+
+
+
 
 // 🔁 Restart endpoint
 app.post("/restart-server", async (_req, res) => {
