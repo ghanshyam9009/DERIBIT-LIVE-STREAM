@@ -10,12 +10,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.823.0",
-    "@aws-sdk/util-dynamodb": "^3.823.0",
+    "@aws-sdk/client-dynamodb": "^3.864.0",
+    "@aws-sdk/client-sqs": "^3.882.0",
+    "@aws-sdk/lib-dynamodb": "^3.864.0",
+    "@aws-sdk/util-dynamodb": "^3.864.0",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
     "dayjs": "^1.11.13",
     "dotenv": "^16.5.0",
+    "env": "^0.0.2",
     "luxon": "^3.7.1",
     "node-cron": "^4.0.7",
     "ws": "^8.18.2"
