@@ -19,18 +19,13 @@ dotenv.config();
 
 
 
-if (!process.env.AWS_ACCESS_KEY_ID_2 || !process.env.AWS_SECRET_ACCESS_KEY_2) {
-  console.error("❌ AWS credentials missing from env!");
-}
-
 const sqsClient = new SQSClient({
   region: "ap-southeast-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID_2 || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY_2 || "",
-  },
+  // credentials: {
+  //   accessKeyId: process.env.AWS_ACCESS_KEY_ID_2 ,
+  //   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY_2
+  // },
 });
-
 
 // --- SQS Queue URLs ---
 const QUEUES = {
