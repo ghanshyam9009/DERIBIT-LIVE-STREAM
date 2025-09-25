@@ -27,7 +27,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 
-import {dotenv} from "dotenv";
+import dotenv from "dotenv";
 
 dotenv.config(); // Load variables from .env
 
