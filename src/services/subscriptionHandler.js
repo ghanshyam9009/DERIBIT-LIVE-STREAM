@@ -35,6 +35,7 @@ export async function checkDynamoConnection() {
 }
 checkDynamoConnection();
 
+
 export async function handleSubscribe1(req, res) {
   const { userId, category } = req.body;
   const ws = req.app.get("positionConnections").get(userId);

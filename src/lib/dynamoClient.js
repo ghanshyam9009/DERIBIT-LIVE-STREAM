@@ -33,7 +33,7 @@ dotenv.config(); // Load variables from .env
 
 
 
-const dynamoClient = new DynamoDBClient({
+export const dynamoClient = new DynamoDBClient({
   region: "ap-southeast-1",
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID_2,
