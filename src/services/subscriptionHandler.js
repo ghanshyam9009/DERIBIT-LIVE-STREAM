@@ -97,6 +97,380 @@ export async function handleSubscribe1(req, res) {
 
 const sentClosedPositions = new Map();
 
+// export async function broadcastAllPositions(
+//   positionConnections,
+//   userId,
+//   category
+// ) {
+//   const ws = positionConnections.get(userId);
+//   if (!ws || ws.readyState !== 1) return;
+
+//   // Ensure user set exists
+//   if (!sentClosedPositions.has(userId)) {
+//     sentClosedPositions.set(userId, new Set());
+//   }
+//   const sentSet = sentClosedPositions.get(userId);
+
+//   const now = DateTime.now().setZone("Asia/Kolkata");
+//   const todayStart = now.set({
+//     hour: 5,
+//     minute: 30,
+//     second: 0,
+//     millisecond: 0,
+//   });
+//   const todayEnd = todayStart.plus({ hours: 24 });
+
+//   const dynamoCommand = new QueryCommand({
+//     TableName: "incrypto-dev-positions",
+//     IndexName: "UserIndex",
+//     KeyConditionExpression: "userId = :uid",
+//     ExpressionAttributeValues: {
+//       ":uid": { S: userId },
+//     },
+//   });
+
+//   let allUserPositions = [];
+//   try {
+//     const { Items } = await dynamoClient.send(dynamoCommand);
+//     allUserPositions = (Items || []).map((item) => unmarshall(item));
+//   } catch (err) {
+//     console.error("❌ Failed to fetch user positions:", err);
+//     return;
+//   }
+
+//   let totalOpenPNL = 0;
+//   let totalOpenInvested = 0;
+//   let openPositions = allUserPositions.filter((pos) => pos.status === "OPEN");
+
+//   const openPayload = await Promise.all(
+//     openPositions.map(async (pos) => {
+//       const {
+//         assetSymbol: symbol,
+//         orderID,
+//         positionId,
+//         quantity,
+//         leverage,
+//         positionType,
+//         entryPrice,
+//         contributionAmount,
+//         takeProfit,
+//         stopLoss,
+//         orderType,
+//         lot,
+//         openedAt,
+//       } = pos;
+
+//       const normalizedSymbol = normalizeToBinanceSymbol(symbol);
+//       let data = {};
+
+//       if (isFuturesSymbol(symbol)) {
+//         data = getDeltaSymbolData(normalizedSymbol);
+//       } else if (isOptionSymbol(symbol)) {
+//         const [currency, date] = getCurrencyAndDateFromSymbol(symbol);
+//         data = getSymbolDataByDate(currency, date, symbol);
+//       }
+
+//       let markPrice = Number(data?.mark_price);
+//       if (!markPrice || isNaN(markPrice)) {
+//         markPrice = Number(data?.calculated?.mark_price?.value);
+//       }
+//       if (!markPrice || isNaN(markPrice)) return null;
+
+//       const invested = entryPrice * quantity;
+//       const isShort = positionType === "SHORT" || positionType === "SHORT_LIMIT";
+//       const pnl = isShort
+//         ? (entryPrice - markPrice) * quantity
+//         : (markPrice - entryPrice) * quantity;
+
+//       const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+//       totalOpenPNL += pnl;
+//       totalOpenInvested += invested;
+
+//       return {
+//         symbol,
+//         orderID,
+//         positionId,
+//         markPrice,
+//         entryPrice,
+//         quantity,
+//         leverage,
+//         positionType,
+//         pnl: Number(pnl.toFixed(6)),
+//         pnlPercentage: Number(pnlPercentage.toFixed(2)),
+//         invested: Number(invested.toFixed(4)),
+//         openedAt,
+//         contributionAmount,
+//         stopLoss,
+//         takeProfit,
+//         orderType,
+//         lot,
+//         status: "OPEN",
+//       };
+//     })
+//   );
+
+//   const filteredOpen = openPayload.filter(Boolean);
+
+//   // ➕ Realized Closed Positions
+//   // const closedPositions = allUserPositions.filter((pos) => {
+//   //   if (pos.status !== "CLOSED" || !pos.closedAt) return false;
+//   //   const closedTime = DateTime.fromISO(pos.closedAt, { zone: "Asia/Kolkata" });
+//   //   return closedTime >= todayStart && closedTime <= todayEnd;
+//   // });
+
+//   // Calculate cutoff for last 24 hours (use UTC to match DB timestamps)
+//   const cutoffTime = DateTime.utc().minus({ hours: 24 });
+
+//   // Filter closed positions whose updatedAt is within last 24 hours
+//   const closedPositions = allUserPositions.filter((pos) => {
+//     if (pos.status !== "CLOSED" || !pos.updatedAt) return false;
+
+//     // Parse updatedAt as UTC
+//     const updatedTime = DateTime.fromISO(pos.updatedAt, { zone: "utc" });
+//     return updatedTime >= cutoffTime;
+//   });
+
+//   let totalClosedPNL = 0;
+//   let totalClosedInvested = 0;
+
+//   const newclosedPayload = closedPositions.map((pos) => {
+//     const {
+//       assetSymbol: symbol,
+//       orderID,
+//       positionId,
+//       entryPrice,
+//       quantity,
+//       leverage,
+//       positionType,
+//       pnl,
+//       exitPrice,
+//       closedAt,
+//       initialMargin,
+//       stopLoss,
+//       takeProfit,
+//       orderType,
+//       lot,
+//       initialQuantity,
+//       positionClosedType,
+//     } = pos;
+
+//     const invested = entryPrice * initialQuantity;
+//     totalClosedInvested += invested;
+//     totalClosedPNL += Number(pnl || 0);
+
+//     return {
+//       symbol,
+//       orderID,
+//       positionId,
+//       exitPrice,
+//       entryPrice,
+//       quantity,
+//       leverage,
+//       positionType,
+//       pnl: Number(pnl?.toFixed(6) || 0),
+//       pnlPercentage: Number(((pnl / invested) * 100).toFixed(2)),
+//       // pnlPercentage: Number((initialQuantity*(entryPrice-exitPrice)).toFixed(2)),
+//       invested: Number(invested.toFixed(4)),
+//       closedAt,
+//       initialMargin,
+//       stopLoss,
+//       takeProfit,
+//       orderType,
+//       lot,
+//       status: "CLOSED",
+//       initialQuantity,
+//       positionClosedType,
+//     };
+//   });
+
+//   newclosedPayload.forEach((p) => sentSet.add(p.positionId));
+
+//   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
+//   const totalPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
+//   const liquidationThreshold = (await getUserLiquidationPrice(userId)) || 0; // Default threshold if not found
+//   // console.log(liquidationThreshold)
+
+//   // 🚨 LIQUIDATION CHECK
+//   // 🚨 LIQUIDATION CHECK
+//   if (totalOpenPNL <= -liquidationThreshold && filteredOpen.length > 0) {
+//     console.log(
+//       `⚠️ Liquidating all open positions for user: ${userId} due to total loss ₹${totalPNL.toFixed(
+//         2
+//       )} exceeding limit ₹100`
+//     );
+
+//     const nowISO = DateTime.now().setZone("Asia/Kolkata").toISO();
+
+//     const liquidationTasks = filteredOpen.map(async (pos) => {
+//       const {
+//         positionId,
+//         pnl,
+//         markPrice,
+//         positionType,
+//         contributionAmount,
+//         symbol,
+//         leverage,
+//         lot,
+//         quantity,
+//         stopLoss,
+//         takeProfit,
+//         orderType,
+//         orderID,
+//       } = pos;
+
+//       // 1️⃣ Close the position in DB
+//       const updateCmd = {
+//         TableName: "incrypto-dev-positions",
+//         Key: {
+//           positionId: { S: positionId },
+//         },
+//         UpdateExpression: `
+//         SET 
+//           #status = :closed,
+//           #closedAt = :closedAt,
+//           #positionClosedType = :positionClosedType,
+//           #quantity = :zero,
+//           #contributionAmount = :zero,
+//           #pnl = :pnl,
+//           #exitPrice = :exitPrice
+//       `,
+//         ExpressionAttributeNames: {
+//           "#status": "status",
+//           "#closedAt": "closedAt",
+//           "#positionClosedType": "positionClosedType",
+//           "#quantity": "quantity",
+//           "#contributionAmount": "contributionAmount",
+//           "#pnl": "pnl",
+//           "#exitPrice": "exitPrice",
+//         },
+//         ExpressionAttributeValues: {
+//           ":closed": { S: "CLOSED" },
+//           ":closedAt": { S: nowISO },
+//           ":positionClosedType": { S: "LIQUIDATION_HIT" },
+//           ":zero": { N: "0" },
+//           ":pnl": { N: pnl.toFixed(6) },
+//           ":exitPrice": { N: markPrice.toFixed(6) },
+//         },
+//       };
+
+//       await dynamoClient.send(new UpdateItemCommand(updateCmd));
+
+//       // 2️⃣ Create a reverse order entry
+//       const newOrderId = `INOR-${Date.now()}`;
+//       const safeExitPrice = markPrice;
+//       const safeQuantity = quantity;
+//       const BROKERAGE_FEE = 0; // set your fee
+//       const feeInINR = 0; // convert fee if needed
+//       const currency = symbol; // or extract from symbol if required
+//       const orderSource = "SYSTEM";
+//       const strategy = "LIQUIDATION";
+//       const posId = positionId;
+
+//       const orderPayload = {
+//         orderId: newOrderId,
+//         userId,
+//         createdAt: nowISO,
+//         updatedAt: nowISO,
+//         fee: BROKERAGE_FEE,
+//         feeInINR,
+//         leverage,
+//         lot,
+//         marginAmount: contributionAmount,
+//         currency,
+//         status: "FILLED",
+//         orderType: "MARKET",
+//         // operation: positionType === "LONG" ? "SELL" : "BUY",
+//         operation: (positionType === "LONG" || positionType === "LONG_LIMIT") ? "SELL" : "BUY",
+//         orderMessage: `Auto order due to liquidation @${safeExitPrice}; margin=${contributionAmount.toFixed(
+//           8
+//         )}, fee=${BROKERAGE_FEE.toFixed(8)}`,
+//         stockSymbol: symbol,
+//         price: safeExitPrice,
+//         size: safeQuantity,
+//         totalValue: safeExitPrice * safeQuantity,
+//         stopLoss,
+//         takeProfit,
+//         positionID: posId,
+//         source: currency,
+//         metaData: {
+//           source: orderSource,
+//           strategy,
+//         },
+//       };
+
+//       await docClient.send(
+//         new PutCommand({
+//           TableName: "incrypto-dev-orders",
+//           Item: orderPayload,
+//         })
+//       );
+
+//       console.log(
+//         `📦 Created liquidation order ${newOrderId} for position ${positionId}`
+//       );
+//     });
+
+//     try {
+//       await Promise.all(liquidationTasks);
+//       console.log("✅ Liquidation + reverse orders complete.");
+
+//       // 3️⃣ Update user's funds to 0
+//       const updateFundsCmd = {
+//         TableName: "incrypto-dev-funds",
+//         Key: {
+//           userId: { S: userId },
+//         },
+//         UpdateExpression: "SET #availableBalance = :zero",
+//         ExpressionAttributeNames: {
+//           "#availableBalance": "availableBalance",
+//         },
+//         ExpressionAttributeValues: {
+//           ":zero": { N: "0" },
+//         },
+//       };
+
+//       await dynamoClient.send(new UpdateItemCommand(updateFundsCmd));
+//       console.log("💰 User funds set to ₹0 due to liquidation.");
+//     } catch (err) {
+//       console.error("❌ Liquidation update failed:", err);
+//     }
+
+//     return; // stop broadcasting since liquidation just happened
+//   }
+
+//   ////////////////////////////////////////////////////////////////////////
+
+//   const allPositions = [...filteredOpen, ...newclosedPayload];
+//   // const userBankBalance = await getUserBankBalance(userId);
+
+//   const payload = {
+//     type: "bulk-position-update",
+//     positions: allPositions,
+//     livepnl: totalOpenPNL,
+//     totalPNL: Number(totalPNL.toFixed(6)),
+//     totalInvested: Number((totalOpenInvested + totalClosedInvested).toFixed(4)),
+//     category,
+//   };
+
+//   ws.send(JSON.stringify(payload));
+// }
+
+
+
+// Helper function to calculate liquidation price (no maintenance margin)
+function calculateLiquidationPrice(entryPrice, leverage, positionType) {
+  // if (leverage <= 0) return null;
+
+  if (positionType === "LONG" || positionType === "LONG_LIMIT") {
+    // LONG liquidation price: entryPrice * (1 - 1/leverage)
+    return entryPrice * (1 - 1 / leverage);
+  } else if (positionType === "SHORT" || positionType === "SHORT_LIMIT") {
+    // SHORT liquidation price: entryPrice * (1 + 1/leverage)
+    return entryPrice * (1 + 1 / leverage);
+  }
+  return null;
+}
+
 export async function broadcastAllPositions(
   positionConnections,
   userId,
@@ -183,8 +557,12 @@ export async function broadcastAllPositions(
         : (markPrice - entryPrice) * quantity;
 
       const pnlPercentage = invested ? (pnl / invested) * 100 : 0;
+
       totalOpenPNL += pnl;
       totalOpenInvested += invested;
+
+      // Calculate liquidation price
+      const liquidationPrice = calculateLiquidationPrice(entryPrice, leverage, positionType);
 
       return {
         symbol,
@@ -198,6 +576,7 @@ export async function broadcastAllPositions(
         pnl: Number(pnl.toFixed(6)),
         pnlPercentage: Number(pnlPercentage.toFixed(2)),
         invested: Number(invested.toFixed(4)),
+        liquidationPrice: liquidationPrice ? Number(liquidationPrice.toFixed(2)) : null,
         openedAt,
         contributionAmount,
         stopLoss,
@@ -210,13 +589,6 @@ export async function broadcastAllPositions(
   );
 
   const filteredOpen = openPayload.filter(Boolean);
-
-  // ➕ Realized Closed Positions
-  // const closedPositions = allUserPositions.filter((pos) => {
-  //   if (pos.status !== "CLOSED" || !pos.closedAt) return false;
-  //   const closedTime = DateTime.fromISO(pos.closedAt, { zone: "Asia/Kolkata" });
-  //   return closedTime >= todayStart && closedTime <= todayEnd;
-  // });
 
   // Calculate cutoff for last 24 hours (use UTC to match DB timestamps)
   const cutoffTime = DateTime.utc().minus({ hours: 24 });
@@ -269,7 +641,6 @@ export async function broadcastAllPositions(
       positionType,
       pnl: Number(pnl?.toFixed(6) || 0),
       pnlPercentage: Number(((pnl / invested) * 100).toFixed(2)),
-      // pnlPercentage: Number((initialQuantity*(entryPrice-exitPrice)).toFixed(2)),
       invested: Number(invested.toFixed(4)),
       closedAt,
       initialMargin,
@@ -288,9 +659,7 @@ export async function broadcastAllPositions(
   const realizedTodayPNL = userRealizedTodayPnL.get(userId) || 0;
   const totalPNL = totalOpenPNL + totalClosedPNL + realizedTodayPNL;
   const liquidationThreshold = (await getUserLiquidationPrice(userId)) || 0; // Default threshold if not found
-  // console.log(liquidationThreshold)
 
-  // 🚨 LIQUIDATION CHECK
   // 🚨 LIQUIDATION CHECK
   if (totalOpenPNL <= -liquidationThreshold && filteredOpen.length > 0) {
     console.log(
@@ -379,7 +748,6 @@ export async function broadcastAllPositions(
         currency,
         status: "FILLED",
         orderType: "MARKET",
-        // operation: positionType === "LONG" ? "SELL" : "BUY",
         operation: (positionType === "LONG" || positionType === "LONG_LIMIT") ? "SELL" : "BUY",
         orderMessage: `Auto order due to liquidation @${safeExitPrice}; margin=${contributionAmount.toFixed(
           8
@@ -441,7 +809,6 @@ export async function broadcastAllPositions(
   ////////////////////////////////////////////////////////////////////////
 
   const allPositions = [...filteredOpen, ...newclosedPayload];
-  // const userBankBalance = await getUserBankBalance(userId);
 
   const payload = {
     type: "bulk-position-update",
